@@ -10,6 +10,7 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.aria.assistant",
       "infoPlist": {
         "NSMotionUsageDescription": "Monitoring des capteurs de mouvement"
       }
@@ -19,16 +20,7 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#121212"
       },
-      "edgeToEdgeEnabled": true,
-      "package": "com.aria.assistant",
-      "permissions": [
-        "ACCESS_NETWORK_STATE",
-        "ACCESS_WIFI_STATE",
-        "INTERNET",
-        "RECEIVE_BOOT_COMPLETED",
-        "POST_NOTIFICATIONS",
-        "VIBRATE"
-      ]
+      "package": "com.aria.assistant"
     },
     "web": {
       "bundler": "metro",
@@ -43,12 +35,17 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#000"
+          "backgroundColor": "#000000"
         }
       ]
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "aria-assistant"
+      }
     }
   }
 }
