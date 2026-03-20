@@ -132,9 +132,127 @@ user_problem_statement: |
   - Analyser demande → Générer code → Compiler → Injecter dans runtime → Tester
   - Fichier: src/services/ai/SelfDevelopment.ts
 
-backend: []
+backend:
+  - task: "Extension système - CRUD API"
+    implemented: true
+    working: "NA"
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "API endpoints pour gestion extensions: GET /extensions, POST /extensions, POST /extensions/{id}/toggle, DELETE /extensions/{id}"
+  
+  - task: "App Launcher - API mapping packages"
+    implemented: true
+    working: "NA"
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "API POST /system/launch-app avec mapping intelligent des noms d'apps vers packages Android. GET /system/available-apps pour liste apps disponibles."
+  
+  - task: "Actions autonomes IA - Lancement apps"
+    implemented: true
+    working: "NA"
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Action [ACTION:launch_app|app_name=xxx] ajoutée au système d'actions autonomes de l'IA. L'IA peut maintenant suggérer et préparer le lancement d'applications."
+  
+  - task: "Seed extensions par défaut"
+    implemented: true
+    working: "NA"
+    file: "server.py"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "4 extensions par défaut créées au seed: Lanceur d'applications, Guide ADB, Auto-apprentissage, Capture d'écran"
 
-frontend: []
+frontend:
+  - task: "Fix scroll automatique chat"
+    implemented: true
+    working: "NA"
+    file: "app/assistant.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Détection du scroll manuel utilisateur avec état isUserScrolling. Auto-scroll désactivé pendant scroll manuel, réactivé après 500ms au bottom. ScrollEventThrottle 400ms."
+  
+  - task: "Menu boîte à outils - Extensions UI"
+    implemented: true
+    working: "NA"
+    file: "app/assistant.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Menu déroulant extensions avec toggle on/off. Bouton package dans header. Liste extensions avec icônes, descriptions et switches toggle."
+  
+  - task: "Hook App Launcher"
+    implemented: true
+    working: "NA"
+    file: "src/useAppLauncher.ts"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Hook useAppLauncher créé avec openApp(), openSettings(), openDeveloperOptions(). Utilise expo-intent-launcher avec fallback Linking. Gestion Play Store pour apps non installées."
+  
+  - task: "Intégration lancement apps dans IA"
+    implemented: true
+    working: "NA"
+    file: "app/assistant.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Détection action launch_app dans réponses IA. Ouverture automatique app après 500ms. Extraction package_name depuis actions_executed."
+  
+  - task: "Écran Guide ADB"
+    implemented: true
+    working: "NA"
+    file: "app/adb-guide.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Nouvel écran /adb-guide avec affichage étapes manuelles, permissions débloquées, bouton consentement, bouton ouverture options développeur. Navigation depuis settings."
+  
+  - task: "Navigation ADB depuis Settings"
+    implemented: true
+    working: "NA"
+    file: "app/settings.tsx, app/_layout.tsx"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "Bouton 'Guide manuel' dans settings redirige vers /adb-guide via router.push(). Route adb-guide masquée des tabs avec href: null."
 
 metadata:
   created_by: "main_agent"
@@ -143,7 +261,13 @@ metadata:
   run_ui: false
 
 test_plan:
-  current_focus: []
+  current_focus:
+    - "Extension système - CRUD API"
+    - "App Launcher - API mapping packages"
+    - "Fix scroll automatique chat"
+    - "Menu boîte à outils - Extensions UI"
+    - "Hook App Launcher"
+    - "Écran Guide ADB"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -151,3 +275,5 @@ test_plan:
 agent_communication:
   - agent: "main"
     message: "Application ARIA existante analysée. Structure Expo Router détectée (app/ au lieu de src/). Les fonctionnalités demandées nécessitent des modules natifs Android qui ne sont pas compatibles avec Expo Managed Workflow. Besoin de clarification sur l'approche à adopter."
+  - agent: "main"
+    message: "Phase 1 complétée - Quick wins implémentés: 1) Fix scroll chat avec détection manuel 2) Système extensions avec menu toggle 3) App Launcher avec expo-intent-launcher 4) Actions IA autonomes launch_app 5) Guide ADB UI complet 6) Hook useAppLauncher avec fallbacks. Prêt pour tests backend."

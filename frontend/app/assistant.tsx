@@ -7,7 +7,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { Colors, Sp, Rad, Fs } from '../src/theme';
-import { chatWithAI, getChatHistory, clearChatHistory, triggerLearning } from '../src/api';
+import { chatWithAI, getChatHistory, clearChatHistory, triggerLearning, getExtensions, toggleExtension } from '../src/api';
+import { useAppLauncher } from '../src/useAppLauncher';
 
 interface Message {
   id: string;
@@ -15,6 +16,16 @@ interface Message {
   content: string;
   timestamp: string;
   model?: string;
+}
+
+interface Extension {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  icon: string;
+  enabled: boolean;
+  config?: any;
 }
 
 const MODEL_BADGE: Record<string, { label: string; color: string; icon: string }> = {
@@ -30,7 +41,12 @@ export default function Assistant() {
   const [initialLoading, setInitialLoading] = useState(true);
   const [knowledgeCount, setKnowledgeCount] = useState(0);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [isUserScrolling, setIsUserScrolling] = useState(false);
+  const [extensions, setExtensions] = useState<Extension[]>([]);
+  const [showExtensionsMenu, setShowExtensionsMenu] = useState(false);
   const flatListRef = useRef<FlatList>(null);
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const appLauncher = useAppLauncher();
 
   const loadHistory = useCallback(async () => {
     try {
@@ -42,7 +58,19 @@ export default function Assistant() {
     setInitialLoading(false);
   }, []);
 
-  useEffect(() => { loadHistory(); }, [loadHistory]);
+  const loadExtensions = useCallback(async () => {
+    try {
+      const data = await getExtensions();
+      setExtensions(data || []);
+    } catch (e) {
+      console.log('Extensions error:', e);
+    }
+  }, []);
+
+  useEffect(() => { 
+    loadHistory();
+    loadExtensions();
+  }, [loadHistory, loadExtensions]);
 
   const copyMessage = async (text: string, id: string) => {
     try {
@@ -79,12 +107,27 @@ export default function Assistant() {
         model: res.model || 'claude',
       };
       setMessages((prev) => [...prev, aiMsg]);
-      // Show actions executed
+      
+      // Handle actions executed (including app launches)
       if (res.actions_executed && res.actions_executed.length > 0) {
         const actionsSummary = res.actions_executed
           .filter((a: any) => a.success)
           .map((a: any) => a.message)
           .join('\n');
+        
+        // Check if there's a launch_app action
+        const launchAction = res.actions_executed.find((a: any) => a.type === 'launch_app' && a.success);
+        if (launchAction && launchAction.package_name) {
+          // Extract app name from the message
+          const appNameMatch = launchAction.message.match(/lancement: (.+)/i);
+          if (appNameMatch) {
+            const appName = appNameMatch[1];
+            setTimeout(() => {
+              appLauncher.openApp(appName);
+            }, 500);
+          }
+        }
+        
         if (actionsSummary) {
           const actionMsg: Message = {
             id: `action-${Date.now()}`,
@@ -131,6 +174,57 @@ export default function Assistant() {
       Alert.alert('Erreur', 'Impossible d\'extraire les apprentissages.');
     }
   };
+
+  const handleToggleExtension = async (extId: string) => {
+    try {
+      const res = await toggleExtension(extId);
+      setExtensions((prev) =>
+        prev.map((ext) => (ext.id === extId ? { ...ext, enabled: res.enabled } : ext))
+      );
+    } catch {
+      Alert.alert('Erreur', 'Impossible de modifier l\'extension.');
+    }
+  };
+
+  const getExtensionIcon = (iconName: string): any => {
+    const iconMap: Record<string, any> = {
+      smartphone: 'smartphone',
+      terminal: 'terminal',
+      brain: 'cpu',
+      camera: 'camera',
+      settings: 'settings',
+      zap: 'zap',
+    };
+    return iconMap[iconName] || 'box';
+  };
+
+  const handleScroll = useCallback((event: any) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const isAtBottom = contentOffset.y >= (contentSize.height - layoutMeasurement.height - 50);
+    
+    // Clear existing timeout
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+
+    // User is scrolling up (not at bottom)
+    if (!isAtBottom) {
+      setIsUserScrolling(true);
+    } else {
+      // User reached bottom, wait a bit before re-enabling auto-scroll
+      scrollTimeoutRef.current = setTimeout(() => {
+        setIsUserScrolling(false);
+      }, 500);
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const renderMessage = ({ item }: { item: Message }) => {
     const isUser = item.role === 'user';
@@ -198,6 +292,13 @@ export default function Assistant() {
           <Text style={s.headerSub}>{knowledgeCount} connaissances | Mode debride</Text>
         </View>
         <View style={s.headerActions}>
+          <TouchableOpacity 
+            testID="toolbox-btn" 
+            onPress={() => setShowExtensionsMenu(!showExtensionsMenu)} 
+            style={s.headerBtn}
+          >
+            <Feather name="package" size={20} color={Colors.brand.secondary} />
+          </TouchableOpacity>
           <TouchableOpacity testID="learn-btn-assistant" onPress={handleLearn} style={s.headerBtn}>
             <Feather name="book-open" size={20} color={Colors.brand.secondary} />
           </TouchableOpacity>
@@ -206,6 +307,46 @@ export default function Assistant() {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* Extensions Toolbox Menu */}
+      {showExtensionsMenu && (
+        <View style={s.extensionsMenu}>
+          <View style={s.extensionsHeader}>
+            <Feather name="package" size={18} color={Colors.brand.primary} />
+            <Text style={s.extensionsTitle}>Boîte à outils</Text>
+            <TouchableOpacity onPress={() => setShowExtensionsMenu(false)}>
+              <Feather name="x" size={18} color={Colors.text.tertiary} />
+            </TouchableOpacity>
+          </View>
+          <ScrollView style={s.extensionsList} showsVerticalScrollIndicator={false}>
+            {extensions.map((ext) => (
+              <TouchableOpacity
+                key={ext.id}
+                testID={`ext-${ext.id}`}
+                style={[s.extensionItem, !ext.enabled && s.extensionItemDisabled]}
+                onPress={() => handleToggleExtension(ext.id)}
+              >
+                <View style={[s.extensionIcon, { backgroundColor: ext.enabled ? Colors.brand.primary + '20' : Colors.bg.tertiary }]}>
+                  <Feather 
+                    name={getExtensionIcon(ext.icon)} 
+                    size={16} 
+                    color={ext.enabled ? Colors.brand.primary : Colors.text.tertiary} 
+                  />
+                </View>
+                <View style={s.extensionContent}>
+                  <Text style={[s.extensionName, !ext.enabled && s.extensionNameDisabled]}>
+                    {ext.name}
+                  </Text>
+                  <Text style={s.extensionDesc}>{ext.description}</Text>
+                </View>
+                <View style={[s.extensionToggle, ext.enabled && s.extensionToggleActive]}>
+                  {ext.enabled && <View style={s.extensionToggleDot} />}
+                </View>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
 
       <KeyboardAvoidingView
         style={s.flex}
@@ -234,7 +375,14 @@ export default function Assistant() {
             renderItem={renderMessage}
             keyExtractor={(item) => item.id}
             contentContainerStyle={s.chatList}
-            onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+            onContentSizeChange={() => {
+              // Only auto-scroll if user is not manually scrolling
+              if (!isUserScrolling) {
+                flatListRef.current?.scrollToEnd({ animated: true });
+              }
+            }}
+            onScroll={handleScroll}
+            scrollEventThrottle={400}
             showsVerticalScrollIndicator={false}
           />
         )}
@@ -355,4 +503,83 @@ const s = StyleSheet.create({
   },
   emptyTitle: { fontSize: Fs.xxl, fontWeight: '800', color: Colors.text.primary, marginBottom: Sp.sm },
   emptyText: { fontSize: Fs.base, color: Colors.text.secondary, textAlign: 'center', lineHeight: 22 },
+  
+  // Extensions Menu
+  extensionsMenu: {
+    backgroundColor: Colors.bg.secondary,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border.subtle,
+    maxHeight: 300,
+  },
+  extensionsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Sp.sm,
+    paddingHorizontal: Sp.xl,
+    paddingVertical: Sp.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border.subtle,
+  },
+  extensionsTitle: {
+    flex: 1,
+    fontSize: Fs.base,
+    fontWeight: '700',
+    color: Colors.text.primary,
+  },
+  extensionsList: {
+    maxHeight: 240,
+  },
+  extensionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Sp.md,
+    paddingHorizontal: Sp.xl,
+    paddingVertical: Sp.md,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border.subtle,
+  },
+  extensionItemDisabled: {
+    opacity: 0.5,
+  },
+  extensionIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  extensionContent: {
+    flex: 1,
+  },
+  extensionName: {
+    fontSize: Fs.sm,
+    fontWeight: '600',
+    color: Colors.text.primary,
+  },
+  extensionNameDisabled: {
+    color: Colors.text.tertiary,
+  },
+  extensionDesc: {
+    fontSize: Fs.xs,
+    color: Colors.text.tertiary,
+    marginTop: 2,
+  },
+  extensionToggle: {
+    width: 40,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: Colors.bg.tertiary,
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+  },
+  extensionToggleActive: {
+    backgroundColor: Colors.brand.primary,
+    alignItems: 'flex-end',
+  },
+  extensionToggleDot: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: Colors.brand.fg,
+  },
 });

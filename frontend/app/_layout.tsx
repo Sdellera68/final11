@@ -69,6 +69,13 @@ export default function TabLayout() {
             ),
           }}
         />
+        <Tabs.Screen
+          name="adb-guide"
+          options={{
+            href: null, // Hide from tabs
+            title: 'Guide ADB',
+          }}
+        />
       </Tabs>
     </>
   );

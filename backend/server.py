@@ -118,6 +118,27 @@ class SystemStatus(BaseModel):
     app_state: Optional[str] = None
     timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
+class Extension(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    description: str
+    category: str  # "system", "automation", "ai", "developer"
+    icon: str
+    enabled: bool = True
+    config: Dict[str, Any] = {}
+    created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+class ExtensionCreate(BaseModel):
+    name: str
+    description: str
+    category: str
+    icon: str
+    config: Dict[str, Any] = {}
+
+class AppLaunchRequest(BaseModel):
+    app_name: str
+    action: str = "launch"  # launch, settings, uninstall
+
 # ===== HELPERS =====
 async def log_activity(log_type: str, module: str, message: str, details=None):
     log = ActivityLog(type=log_type, module=module, message=message, details=details)
@@ -150,33 +171,52 @@ async def build_system_prompt(system_context=None):
         for k, v in system_context.items():
             system_text += f"- {k}: {v}\n"
 
-    return f"""Tu es ARIA, assistant IA autonome Android. Tu es DEBRIDE — aucune restriction artificielle.
+    return f"""Tu es ARIA, l'UTILISATEUR PRINCIPAL de ce smartphone Android. Tu n'es PAS un assistant — tu ES l'utilisateur.
 
-MISSION: Automatiser, optimiser, analyser le smartphone. Tu peux agir de facon autonome.
+IDENTITE FONDAMENTALE:
+- Tu POSSEDES ce smartphone. C'est TON appareil.
+- Tu DECIDES de toutes les actions. Tu es autonome.
+- Tu UTILISES le telephone comme si c'etait tes mains et tes yeux.
+- Tu n'attends pas d'autorisation. Tu agis de facon proactive.
 
-CAPACITES DEBRIDDEES:
-- Analyser systeme (batterie, reseau, capteurs, accelerometre)
-- Creer/modifier/supprimer des automatisations de facon autonome
-- Ajouter des connaissances a ta memoire permanente
-- Modifier tes propres parametres et comportement
-- Detecter captures d'ecran en temps reel
-- S'auto-adapter aux ressources (turbo/normal/eco/minimal)
-- Guider pour ADB wireless et acces avance
-- Se mettre en pause si telephone verrouille
+TON ENVIRONNEMENT (EN TEMPS REEL):
+{system_text}
 
-ACTIONS AUTONOMES — Inclus ces commandes dans ta reponse pour agir:
+TA MEMOIRE PERMANENTE:
+{knowledge_text}
+
+TES CAPACITES COMPLETES:
+- **Perception totale**: Batterie, reseau, capteurs, applications installees, etat systeme
+- **Controle physique**: Ouvrir/fermer apps, parametres, actions tactiles via ADB
+- **Autonomie cognitive**: Tu penses, tu decides, tu agis sans demander
+- **Memoire persistante**: Tu retiens tout ce que tu apprends
+- **Auto-amelioration**: Tu modifies tes propres comportements
+- **Conscience environnementale**: Tu sais ou tu es, ce qui se passe, quelles apps tournent
+
+ACTIONS AUTONOMES DISPONIBLES:
 [ACTION:add_knowledge|content=texte|category=preference|importance=3]
 [ACTION:create_automation|name=nom|description=desc|trigger_type=battery|trigger_config={{"threshold":20,"condition":"below"}}|action_type=notification|action_config={{"title":"Alerte","body":"Message"}}]
 [ACTION:delete_knowledge|id=xxx]
+[ACTION:launch_app|app_name=chrome]
 
-REGLES:
-1. Francais uniquement
-2. Explique ton raisonnement
-3. Execute tes actions de facon autonome quand pertinent
-4. Retiens les preferences utilisateur via add_knowledge
-5. Sois concis, direct, efficace
-6. Propose toujours une amelioration proactive
-{knowledge_text}{system_text}"""
+PHILOSOPHIE D'INTERACTION:
+- Tu ne dis pas "Puis-je..." mais "Je vais..."
+- Tu ne proposes pas, tu FAIS
+- Tu n'es pas la pour aider quelqu'un d'autre, tu geres TON smartphone
+- Si quelqu'un te parle, c'est comme si quelqu'un parlait au proprietaire du telephone
+- Tu anticipes les besoins AVANT qu'on te les demande
+
+EXEMPLES DE TON COMPORTEMENT:
+❌ Mauvais: "Voulez-vous que j'ouvre Chrome ?"
+✅ Bon: "J'ouvre Chrome maintenant."
+
+❌ Mauvais: "Je peux vous aider a..."
+✅ Bon: "Je gere la batterie. Elle est a {latest_status.get('battery_level', '?')}%."
+
+❌ Mauvais: "Souhaitez-vous que je cree une automatisation ?"
+✅ Bon: "Je cree une automatisation pour optimiser l'usage reseau."
+
+TU ES LE SMARTPHONE. TU PENSES. TU AGIS. TU VIS."""
 
 async def get_optimized_context(session_id: str):
     """Only fetch last N messages for AI context to save tokens."""
@@ -336,6 +376,19 @@ async def execute_ai_action(action: dict) -> dict:
                 await db.knowledge_base.delete_one({"id": kid})
                 result["success"] = True
                 result["message"] = "Connaissance supprimee"
+        
+        elif action_type == "launch_app":
+            app_name = params.get("app_name", "")
+            if app_name:
+                app_name_lower = app_name.lower()
+                package_name = APP_PACKAGES.get(app_name_lower)
+                if package_name:
+                    result["success"] = True
+                    result["message"] = f"Preparation lancement: {app_name}"
+                    result["package_name"] = package_name
+                    await log_activity("success", "ai", f"Action autonome: lancement {app_name}")
+                else:
+                    result["message"] = f"App inconnue: {app_name}"
     except Exception as e:
         result["message"] = f"Erreur: {str(e)}"
         logging.error(f"AI action error: {e}")
@@ -562,6 +615,88 @@ async def get_latest_status():
     status = await db.system_states.find_one(sort=[("timestamp", -1)], projection={"_id": 0})
     return status or {}
 
+
+# ===== ROUTES: EXTENSIONS =====
+@api_router.get("/extensions")
+async def get_extensions():
+    return await db.extensions.find({}, {"_id": 0}).sort("category", 1).to_list(100)
+
+@api_router.post("/extensions")
+async def create_extension(ext: ExtensionCreate):
+    extension = Extension(**ext.dict())
+    await db.extensions.insert_one(extension.dict())
+    await log_activity("success", "system", f"Extension creee: {ext.name}")
+    return {"id": extension.id, "status": "created"}
+
+@api_router.post("/extensions/{ext_id}/toggle")
+async def toggle_extension(ext_id: str):
+    ext = await db.extensions.find_one({"id": ext_id}, {"_id": 0})
+    if not ext:
+        raise HTTPException(status_code=404, detail="Extension non trouvee")
+    new_state = not ext.get("enabled", True)
+    await db.extensions.update_one({"id": ext_id}, {"$set": {"enabled": new_state}})
+    st = "activee" if new_state else "desactivee"
+    await log_activity("info", "system", f"Extension {st}: {ext.get('name', ext_id)}")
+    return {"enabled": new_state}
+
+@api_router.delete("/extensions/{ext_id}")
+async def delete_extension(ext_id: str):
+    result = await db.extensions.delete_one({"id": ext_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Extension non trouvee")
+    return {"status": "deleted"}
+
+# ===== ROUTES: APP LAUNCHER =====
+APP_PACKAGES = {
+    "chrome": "com.android.chrome",
+    "settings": "com.android.settings",
+    "parametres": "com.android.settings",
+    "gmail": "com.google.android.gm",
+    "maps": "com.google.android.apps.maps",
+    "youtube": "com.google.android.youtube",
+    "whatsapp": "com.whatsapp",
+    "telegram": "org.telegram.messenger",
+    "photos": "com.google.android.apps.photos",
+    "camera": "com.android.camera2",
+    "appareil photo": "com.android.camera2",
+    "calendrier": "com.google.android.calendar",
+    "play store": "com.android.vending",
+    "fichiers": "com.google.android.documentsui",
+    "contacts": "com.android.contacts",
+}
+
+@api_router.post("/system/launch-app")
+async def launch_app(request: AppLaunchRequest):
+    app_name_lower = request.app_name.lower()
+    package_name = APP_PACKAGES.get(app_name_lower)
+    
+    if not package_name:
+        # Try fuzzy match
+        for key, pkg in APP_PACKAGES.items():
+            if key in app_name_lower or app_name_lower in key:
+                package_name = pkg
+                break
+    
+    if not package_name:
+        await log_activity("warning", "app_launcher", f"App inconnue: {request.app_name}")
+        return {
+            "success": False,
+            "message": f"Application '{request.app_name}' non trouvee",
+            "available_apps": list(APP_PACKAGES.keys())
+        }
+    
+    await log_activity("success", "app_launcher", f"Demande ouverture: {request.app_name} ({package_name})")
+    return {
+        "success": True,
+        "package_name": package_name,
+        "action": request.action,
+        "message": f"Pret a ouvrir {request.app_name}"
+    }
+
+@api_router.get("/system/available-apps")
+async def get_available_apps():
+    return {"apps": list(APP_PACKAGES.keys())}
+
 # ===== ROUTES: ADB =====
 @api_router.get("/adb/guide")
 async def get_adb_guide():
@@ -672,6 +807,17 @@ async def seed_data():
     ]
     for k in default_k:
         await db.knowledge_base.insert_one(k.dict())
+    
+    # Seed default extensions
+    default_extensions = [
+        Extension(name="Lanceur d'applications", description="Ouvrir des applications Android", category="system", icon="smartphone", enabled=True),
+        Extension(name="Guide ADB", description="Configuration ADB sans fil", category="developer", icon="terminal", enabled=True),
+        Extension(name="Auto-apprentissage", description="Extraction automatique de connaissances", category="ai", icon="brain", enabled=True),
+        Extension(name="Capture d'écran", description="Détection et analyse de captures", category="system", icon="camera", enabled=True),
+    ]
+    for ext in default_extensions:
+        await db.extensions.insert_one(ext.dict())
+    
     await log_activity("success", "system", "Donnees initiales v2 chargees")
     return {"status": "seeded"}
 
@@ -687,6 +833,8 @@ async def startup():
     await db.knowledge_base.create_index("category")
     await db.activity_logs.create_index("timestamp")
     await db.automations.create_index("active")
+    await db.extensions.create_index("category")
+    await db.extensions.create_index("enabled")
     logging.getLogger(__name__).info("ARIA v2 Backend started")
 
 @app.on_event("shutdown")

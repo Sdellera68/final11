@@ -6,6 +6,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
 import * as IntentLauncher from 'expo-intent-launcher';
+import { router } from 'expo-router';
 import { Colors, Sp, Rad, Fs } from '../src/theme';
 import {
   getStats, getKnowledge, clearKnowledge, clearLogs,
@@ -79,12 +80,8 @@ export default function Settings() {
     ]);
   };
 
-  const openADBSetup = async () => {
-    try {
-      const guide = await getADBGuide();
-      setAdbGuide(guide);
-      setShowADB(true);
-    } catch { setShowADB(true); }
+  const openADBSetup = () => {
+    router.push('/adb-guide');
   };
 
   const handleADBConsent = async (accepted: boolean) => {

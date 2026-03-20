@@ -74,3 +74,17 @@ export const getADBGuide = () => fetchAPI('/adb/guide');
 export const getADBConsent = () => fetchAPI('/adb/consent');
 export const setADBConsent = (accepted: boolean) =>
   fetchAPI('/adb/consent', { method: 'POST', body: JSON.stringify({ accepted }) });
+
+// Extensions
+export const getExtensions = () => fetchAPI('/extensions');
+export const createExtension = (data: any) =>
+  fetchAPI('/extensions', { method: 'POST', body: JSON.stringify(data) });
+export const toggleExtension = (id: string) =>
+  fetchAPI(`/extensions/${id}/toggle`, { method: 'POST' });
+export const deleteExtension = (id: string) =>
+  fetchAPI(`/extensions/${id}`, { method: 'DELETE' });
+
+// App Launcher
+export const launchApp = (appName: string, action: string = 'launch') =>
+  fetchAPI('/system/launch-app', { method: 'POST', body: JSON.stringify({ app_name: appName, action }) });
+export const getAvailableApps = () => fetchAPI('/system/available-apps');
