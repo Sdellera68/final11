@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import * as IntentLauncher from 'expo-intent-launcher';
-import { Alert, Platform, Linking } from 'react-native';
+import { Alert, Platform, Linking, NativeModules } from 'react-native';
 import { launchApp } from './api';
+
+const ADBManager = Platform.OS === 'android' ? NativeModules.ADBManager : null;
 
 export function useAppLauncher() {
   const [loading, setLoading] = useState(false);
@@ -24,32 +26,55 @@ export function useAppLauncher() {
 
       const packageName = response.package_name;
 
-      try {
-        // Try to launch the app using IntentLauncher
-        await IntentLauncher.startActivityAsync('android.intent.action.MAIN', {
-          packageName,
-          className: packageName + '.MainActivity',
-        });
-        return true;
-      } catch (launchError) {
-        // Fallback: try to open with Linking
+      // PRIORITY 1: Try native module (most reliable)
+      if (ADBManager && ADBManager.launchApp) {
         try {
-          const supported = await Linking.canOpenURL(`package:${packageName}`);
-          if (supported) {
-            await Linking.openURL(`package:${packageName}`);
-            return true;
-          } else {
-            // Try to open in Play Store
-            await Linking.openURL(`market://details?id=${packageName}`);
-            Alert.alert('Application non installée', `Voulez-vous installer ${appName} depuis le Play Store ?`);
-            return false;
-          }
-        } catch (linkError) {
-          console.error('Launch error:', linkError);
-          Alert.alert('Erreur', `Impossible d'ouvrir ${appName}. L'application n'est peut-être pas installée.`);
-          return false;
+          await ADBManager.launchApp(packageName);
+          console.log(`App launched via native module: ${appName}`);
+          return true;
+        } catch (nativeError) {
+          console.log('Native module failed, trying fallback:', nativeError);
         }
       }
+
+      // PRIORITY 2: Try IntentLauncher (Expo method)
+      try {
+        await IntentLauncher.startActivityAsync('android.intent.action.MAIN', {
+          packageName,
+        });
+        console.log(`App launched via IntentLauncher: ${appName}`);
+        return true;
+      } catch (intentError) {
+        console.log('IntentLauncher failed, trying Linking:', intentError);
+      }
+
+      // PRIORITY 3: Try Linking as last resort (may not work for all apps)
+      try {
+        const appUrl = `intent://${packageName}#Intent;scheme=android-app;end`;
+        const canOpen = await Linking.canOpenURL(appUrl);
+        if (canOpen) {
+          await Linking.openURL(appUrl);
+          console.log(`App launched via Linking: ${appName}`);
+          return true;
+        }
+      } catch (linkError) {
+        console.log('Linking failed:', linkError);
+      }
+
+      // All methods failed - app probably not installed
+      Alert.alert(
+        'Application introuvable',
+        `${appName} n'est pas installée sur cet appareil.`,
+        [
+          { text: 'Annuler', style: 'cancel' },
+          {
+            text: 'Installer',
+            onPress: () => Linking.openURL(`market://details?id=${packageName}`),
+          },
+        ]
+      );
+      return false;
+
     } catch (error) {
       console.error('App launcher error:', error);
       Alert.alert('Erreur', 'Une erreur est survenue lors du lancement de l\'application.');
