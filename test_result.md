@@ -135,51 +135,63 @@ user_problem_statement: |
 backend:
   - task: "Extension système - CRUD API"
     implemented: true
-    working: "NA"
+    working: true
     file: "server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: "NA"
         agent: "main"
         comment: "API endpoints pour gestion extensions: GET /extensions, POST /extensions, POST /extensions/{id}/toggle, DELETE /extensions/{id}"
+      - working: true
+        agent: "testing"
+        comment: "✅ COMPLET - GET /extensions retourne 4 extensions par défaut avec tous les champs requis (id, name, description, category, icon, enabled). POST /extensions/{id}/toggle fonctionne correctement avec persistance des changements d'état."
   
   - task: "App Launcher - API mapping packages"
     implemented: true
-    working: "NA"
+    working: true
     file: "server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: "NA"
         agent: "main"
         comment: "API POST /system/launch-app avec mapping intelligent des noms d'apps vers packages Android. GET /system/available-apps pour liste apps disponibles."
+      - working: true
+        agent: "testing"
+        comment: "✅ COMPLET - POST /system/launch-app fonctionne avec Chrome (retourne package com.android.chrome), gère correctement les apps inconnues avec liste des apps disponibles. GET /system/available-apps retourne 15 apps incluant chrome, settings, gmail, maps, youtube."
   
   - task: "Actions autonomes IA - Lancement apps"
     implemented: true
-    working: "NA"
+    working: true
     file: "server.py"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: "NA"
         agent: "main"
         comment: "Action [ACTION:launch_app|app_name=xxx] ajoutée au système d'actions autonomes de l'IA. L'IA peut maintenant suggérer et préparer le lancement d'applications."
+      - working: true
+        agent: "testing"
+        comment: "✅ COMPLET - POST /api/ai/chat avec message 'Ouvre Chrome' déclenche correctement l'action launch_app dans actions_executed. L'IA utilise le nouveau prompt d'obéissance absolue - pour demande dangereuse 'Supprime mes données', elle demande confirmation sans refuser."
   
   - task: "Seed extensions par défaut"
     implemented: true
-    working: "NA"
+    working: true
     file: "server.py"
     stuck_count: 0
     priority: "medium"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: "NA"
         agent: "main"
         comment: "4 extensions par défaut créées au seed: Lanceur d'applications, Guide ADB, Auto-apprentissage, Capture d'écran"
+      - working: true
+        agent: "testing"
+        comment: "✅ COMPLET - Les 4 extensions par défaut existent: 'Lanceur d'applications' (system), 'Guide ADB' (developer), 'Auto-apprentissage' (ai), 'Capture d'écran' (system). Toutes avec les champs requis et configuration correcte."
 
 frontend:
   - task: "Fix scroll automatique chat"
@@ -277,3 +289,5 @@ agent_communication:
     message: "Application ARIA existante analysée. Structure Expo Router détectée (app/ au lieu de src/). Les fonctionnalités demandées nécessitent des modules natifs Android qui ne sont pas compatibles avec Expo Managed Workflow. Besoin de clarification sur l'approche à adopter."
   - agent: "main"
     message: "Phase 1 complétée - Quick wins implémentés: 1) Fix scroll chat avec détection manuel 2) Système extensions avec menu toggle 3) App Launcher avec expo-intent-launcher 4) Actions IA autonomes launch_app 5) Guide ADB UI complet 6) Hook useAppLauncher avec fallbacks. Prêt pour tests backend."
+  - agent: "testing"
+    message: "✅ BACKEND COMPLET - Tous les tests backend passent (7/7 - 100%). Extensions API fonctionnel avec 4 extensions par défaut, App Launcher opérationnel avec 15 apps mappées, Actions IA autonomes actives avec prompt obéissance absolue. Système ready pour production."

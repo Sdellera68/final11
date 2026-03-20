@@ -19,63 +19,68 @@ interface InstalledPackage {
   appName: string;
 }
 
-const { ADBManager } = NativeModules;
+// Safe access to native module - only available on native Android builds
+const ADBManager = Platform.OS === 'android' ? NativeModules.ADBManager : null;
+
+const isADBManagerAvailable = (): boolean => {
+  return Platform.OS === 'android' && ADBManager !== null && ADBManager !== undefined;
+};
 
 export function useADBManager() {
   const getDeviceIP = async (): Promise<string> => {
-    if (Platform.OS !== 'android') {
-      throw new Error('ADB Manager is only available on Android');
+    if (!isADBManagerAvailable()) {
+      throw new Error('ADB Manager requires a native Android build (not available in Expo preview)');
     }
     return await ADBManager.getDeviceIP();
   };
 
   const isADBEnabled = async (): Promise<boolean> => {
-    if (Platform.OS !== 'android') return false;
+    if (!isADBManagerAvailable()) return false;
     return await ADBManager.isADBEnabled();
   };
 
   const getADBPort = async (): Promise<number> => {
-    if (Platform.OS !== 'android') return 5555;
+    if (!isADBManagerAvailable()) return 5555;
     return await ADBManager.getADBPort();
   };
 
   const startADBWireless = async (): Promise<boolean> => {
-    if (Platform.OS !== 'android') {
-      throw new Error('ADB Manager is only available on Android');
+    if (!isADBManagerAvailable()) {
+      throw new Error('ADB Manager requires a native Android build');
     }
     return await ADBManager.startADBWireless();
   };
 
   const executeCommand = async (command: string): Promise<CommandResult> => {
-    if (Platform.OS !== 'android') {
-      throw new Error('ADB Manager is only available on Android');
+    if (!isADBManagerAvailable()) {
+      throw new Error('ADB Manager requires a native Android build');
     }
     return await ADBManager.executeCommand(command);
   };
 
   const getADBPairingInfo = async (): Promise<ADBPairingInfo> => {
-    if (Platform.OS !== 'android') {
-      throw new Error('ADB Manager is only available on Android');
+    if (!isADBManagerAvailable()) {
+      throw new Error('ADB Manager requires a native Android build');
     }
     return await ADBManager.getADBPairingInfo();
   };
 
   const getInstalledPackages = async (): Promise<InstalledPackage[]> => {
-    if (Platform.OS !== 'android') {
-      throw new Error('ADB Manager is only available on Android');
+    if (!isADBManagerAvailable()) {
+      throw new Error('ADB Manager requires a native Android build');
     }
     return await ADBManager.getInstalledPackages();
   };
 
   const launchAppNative = async (packageName: string): Promise<boolean> => {
-    if (Platform.OS !== 'android') {
-      throw new Error('ADB Manager is only available on Android');
+    if (!isADBManagerAvailable()) {
+      throw new Error('ADB Manager requires a native Android build');
     }
     return await ADBManager.launchApp(packageName);
   };
 
   const isDeviceRooted = async (): Promise<boolean> => {
-    if (Platform.OS !== 'android') return false;
+    if (!isADBManagerAvailable()) return false;
     return await ADBManager.isDeviceRooted();
   };
 
@@ -89,5 +94,6 @@ export function useADBManager() {
     getInstalledPackages,
     launchAppNative,
     isDeviceRooted,
+    isAvailable: isADBManagerAvailable(),
   };
 }
