@@ -101,3 +101,53 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: |
+  L'utilisateur souhaite améliorer l'application ARIA existante avec 5 nouvelles fonctionnalités prioritaires:
+  
+  PRIORITÉ 1 — ADB Wireless Auto-Setup
+  - Créer un système de connexion ADB sans fil automatique
+  - Détecter l'IP du device
+  - Demander consentement utilisateur
+  - Tenter connexion adb tcpip 5555
+  - Fichiers: src/services/system/ADBAutoSetup.ts + android/app/src/main/java/ADBModule.kt
+  
+  PRIORITÉ 2 — Ouverture d'Applications
+  - Permettre à ARIA d'ouvrir/fermer des applications Android
+  - Mapping intelligent des noms d'apps vers leurs packages
+  - Fichier: src/services/system/AppLauncher.ts
+  
+  PRIORITÉ 3 — Fix Auto-Scroll Chat
+  - Problème: La conversation redescend automatiquement pendant que l'utilisateur scroll vers le haut
+  - Solution: Détecter quand l'utilisateur scroll manuellement et désactiver le scroll auto
+  - Fichier: app/assistant.tsx (existe déjà)
+  
+  PRIORITÉ 4 — Service d'Accessibilité Android
+  - Créer un service d'accessibilité pour détecter les changements UI
+  - Permettre l'exécution de tap/swipe/type
+  - Fichier: android/app/src/main/java/ARIAAccessibilityService.kt
+  
+  PRIORITÉ 5 — Système Auto-Développement
+  - Permettre à ARIA de générer et compiler son propre code à chaud
+  - Analyser demande → Générer code → Compiler → Injecter dans runtime → Tester
+  - Fichier: src/services/ai/SelfDevelopment.ts
+
+backend: []
+
+frontend: []
+
+metadata:
+  created_by: "main_agent"
+  version: "1.0"
+  test_sequence: 0
+  run_ui: false
+
+test_plan:
+  current_focus: []
+  stuck_tasks: []
+  test_all: false
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: "Application ARIA existante analysée. Structure Expo Router détectée (app/ au lieu de src/). Les fonctionnalités demandées nécessitent des modules natifs Android qui ne sont pas compatibles avec Expo Managed Workflow. Besoin de clarification sur l'approche à adopter."

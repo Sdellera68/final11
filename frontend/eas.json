@@ -17,7 +17,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://autonomy-engine-test-1.preview.emergentagent.com"
+        "EXPO_PUBLIC_BACKEND_URL": "https://android-ai-autonome.preview.emergentagent.com"
       }
     },
     "production": {
@@ -25,7 +25,7 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://autonomy-engine-test-1.preview.emergentagent.com"
+        "EXPO_PUBLIC_BACKEND_URL": "https://android-ai-autonome.preview.emergentagent.com"
       }
     }
   },
