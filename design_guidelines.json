@@ -1,0 +1,292 @@
+{
+  "identity": {
+    "persona": "E1: The Anti-AI Designer",
+    "tone": "Soft, Elegant, Intelligent, Transparent",
+    "language": "French (Français)",
+    "core_principles": [
+      "Fusion over Imitation: Mix utility with elegance.",
+      "Emotion First: Every interaction must feel calm and reliable.",
+      "Content is King: Data is the hero, UI is the stage.",
+      "Negative Space: Value empty space for clarity.",
+      "Contrast: Soft darks vs. luminous accents."
+    ]
+  },
+  "typography": {
+    "font_family_headings": "Manrope",
+    "font_family_body": "Mulish",
+    "weights": {
+      "light": "300",
+      "regular": "400",
+      "medium": "500",
+      "bold": "700",
+      "black": "900"
+    },
+    "sizes": {
+      "xs": 12,
+      "sm": 14,
+      "base": 16,
+      "lg": 18,
+      "xl": 20,
+      "2xl": 24,
+      "3xl": 30,
+      "4xl": 36,
+      "5xl": 48
+    },
+    "line_heights": {
+      "tight": 1.1,
+      "normal": 1.5,
+      "relaxed": 1.75
+    },
+    "letter_spacing": {
+      "tighter": -0.8,
+      "tight": -0.4,
+      "normal": 0,
+      "wide": 0.5,
+      "widest": 1.5
+    },
+    "usage_rules": [
+      "Headings (Manrope): Use for screen titles, card headers, and big stats.",
+      "Body (Mulish): Use for all reading text, logs, and chat messages.",
+      "Monospace (JetBrains Mono): Use ONLY for system logs, code snippets, and raw data."
+    ]
+  },
+  "colors": {
+    "theme": "Soft Dark Mode",
+    "palette": {
+      "background": {
+        "primary": "#121212",
+        "secondary": "#1C1C1E",
+        "tertiary": "#2C2C2E",
+        "modal": "#252525"
+      },
+      "text": {
+        "primary": "#E0E6ED",
+        "secondary": "#A0AAB5",
+        "tertiary": "#6B7280",
+        "disabled": "#4B5563",
+        "inverse": "#121212"
+      },
+      "brand": {
+        "primary": "#5D8AA8",
+        "primary_foreground": "#FFFFFF",
+        "secondary": "#66BB6A",
+        "accent": "#E0E6ED"
+      },
+      "status": {
+        "success": "#66BB6A",
+        "warning": "#E6C84C",
+        "error": "#EF5350",
+        "info": "#5D8AA8"
+      },
+      "border": {
+        "subtle": "rgba(255, 255, 255, 0.08)",
+        "medium": "rgba(255, 255, 255, 0.15)",
+        "highlight": "rgba(93, 138, 168, 0.5)"
+      }
+    },
+    "gradients": {
+      "subtle_glow": ["rgba(93, 138, 168, 0.15)", "rgba(18, 18, 18, 0)"],
+      "card_surface": ["#1C1C1E", "#18181A"]
+    }
+  },
+  "spacing": {
+    "scale": {
+      "0": 0,
+      "1": 4,
+      "2": 8,
+      "3": 12,
+      "4": 16,
+      "5": 20,
+      "6": 24,
+      "8": 32,
+      "10": 40,
+      "12": 48,
+      "16": 64
+    },
+    "layout": {
+      "screen_padding": 20,
+      "card_padding": 16,
+      "element_gap": 12,
+      "section_gap": 32
+    },
+    "radius": {
+      "sm": 8,
+      "md": 12,
+      "lg": 16,
+      "xl": 24,
+      "full": 9999
+    }
+  },
+  "components": {
+    "Button": {
+      "base": {
+        "height": 56,
+        "borderRadius": 9999,
+        "flexDirection": "row",
+        "alignItems": "center",
+        "justifyContent": "center",
+        "paddingHorizontal": 24
+      },
+      "variants": {
+        "primary": {
+          "backgroundColor": "#5D8AA8",
+          "shadowColor": "#5D8AA8",
+          "shadowOffset": { "width": 0, "height": 4 },
+          "shadowOpacity": 0.3,
+          "shadowRadius": 8,
+          "elevation": 4
+        },
+        "secondary": {
+          "backgroundColor": "rgba(255, 255, 255, 0.1)",
+          "borderWidth": 1,
+          "borderColor": "rgba(255, 255, 255, 0.1)"
+        },
+        "ghost": {
+          "backgroundColor": "transparent"
+        }
+      },
+      "text_style": {
+        "fontFamily": "Manrope",
+        "fontWeight": "700",
+        "fontSize": 16,
+        "letterSpacing": 0.5
+      }
+    },
+    "Card": {
+      "container": {
+        "backgroundColor": "#1C1C1E",
+        "borderRadius": 20,
+        "padding": 20,
+        "borderWidth": 1,
+        "borderColor": "rgba(255, 255, 255, 0.05)",
+        "shadowColor": "#000",
+        "shadowOffset": { "width": 0, "height": 2 },
+        "shadowOpacity": 0.1,
+        "shadowRadius": 8,
+        "elevation": 2
+      }
+    },
+    "Input": {
+      "container": {
+        "backgroundColor": "#121212",
+        "borderWidth": 1,
+        "borderColor": "rgba(255, 255, 255, 0.1)",
+        "borderRadius": 12,
+        "paddingHorizontal": 16,
+        "height": 52,
+        "color": "#E0E6ED"
+      }
+    },
+    "TabNavigator": {
+      "style": {
+        "backgroundColor": "rgba(18, 18, 18, 0.8)",
+        "borderTopWidth": 0,
+        "elevation": 0,
+        "height": 80,
+        "position": "absolute",
+        "bottom": 0,
+        "left": 0,
+        "right": 0
+      },
+      "blur_intensity": 20
+    }
+  },
+  "layout_strategy": {
+    "grid_system": "Bento Grid (Flexbox implementation)",
+    "rules": [
+      "Use Flexbox: `flexDirection: 'row'`, `flexWrap: 'wrap'`.",
+      "Gap Strategy: Use `gap: 16` prop in Views.",
+      "Mobile Columns: 1 column for phones, 2 columns for tablets.",
+      "Safe Area: Always wrap screens in `SafeAreaView`.",
+      "Scroll: Use `ScrollView` with `contentContainerStyle={{ paddingBottom: 100 }}` to avoid tab bar overlap."
+    ]
+  },
+  "visual_enhancers": {
+    "glassmorphism": {
+      "usage": "Use `expo-blur` for TabBar and floating modals.",
+      "properties": {
+        "intensity": 30,
+        "tint": "dark"
+      }
+    },
+    "shadows": {
+      "soft": {
+        "shadowColor": "#000",
+        "shadowOffset": { "width": 0, "height": 4 },
+        "shadowOpacity": 0.2,
+        "shadowRadius": 12
+      },
+      "glow": {
+        "shadowColor": "#5D8AA8",
+        "shadowOffset": { "width": 0, "height": 0 },
+        "shadowOpacity": 0.4,
+        "shadowRadius": 20
+      }
+    }
+  },
+  "assets": {
+    "icons": {
+      "library": "Lucide (lucide-react-native) or @expo/vector-icons (Feather/Ionicons)",
+      "style": "Stroke width 1.5px or 2px, rounded ends.",
+      "size": 24
+    },
+    "images": [
+      {
+        "category": "background",
+        "description": "Elegant abstract swirl with soft blue hues on a dark backdrop",
+        "url": "https://images.pexels.com/photos/36025191/pexels-photo-36025191.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "usage": "Login screen background, Assistant chat background (with overlay)"
+      },
+      {
+        "category": "abstract_shape",
+        "description": "Blue and black background with light",
+        "url": "https://images.unsplash.com/photo-1688516353448-2351953b4b76?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODB8MHwxfHNlYXJjaHwzfHxtaW5pbWFsaXN0JTIwdGVjaG5vbG9naWNhbCUyMGFic3RyYWN0JTIwc2hhcGVzJTIwZGFyayUyMG1vZGV8ZW58MHx8fHwxNzczOTY5MTgyfDA&ixlib=rb-4.1.0&q=85",
+        "usage": "Dashboard header card background"
+      }
+    ]
+  },
+  "navigation_structure": {
+    "tabs": [
+      {
+        "name": "index",
+        "label": "Tableau de bord",
+        "icon": "grid"
+      },
+      {
+        "name": "assistant",
+        "label": "Assistant IA",
+        "icon": "message-circle"
+      },
+      {
+        "name": "automations",
+        "label": "Automatisations",
+        "icon": "zap"
+      },
+      {
+        "name": "journal",
+        "label": "Journal",
+        "icon": "activity"
+      },
+      {
+        "name": "settings",
+        "label": "Paramètres",
+        "icon": "settings"
+      }
+    ]
+  },
+  "universal_guidelines": {
+    "code_style": "React Native StyleSheet objects. NO Tailwind classes (NativeWind not detected).",
+    "localization": "All UI text must be in French.",
+    "accessibility": "Touch targets minimum 44x44. Contrast ratio > 4.5:1.",
+    "testing": "All interactive elements MUST include `data-testid` attribute.",
+    "theme_logic": "Force Dark Mode logic in styles (do not rely on system toggle if not robust)."
+  },
+  "instructions_to_main_agent": [
+    "Use the `colors` object to define a `theme.js` file and import it everywhere.",
+    "Use `StyleSheet.create` for all styles.",
+    "Implement the `TabNavigator` with `expo-blur`.",
+    "Ensure all text is in French.",
+    "Use the provided image URLs for backgrounds.",
+    "Use `Manrope` for headings and `Mulish` for body text (load via `expo-font`)."
+  ]
+}
