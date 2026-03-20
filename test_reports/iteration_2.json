@@ -1,0 +1,68 @@
+{
+  "summary": "Iteration 2 testing completed. Backend 100% pass (18/18 tests). Found and fixed 2 critical bugs: Accelerometer web compatibility and useFocusEffect import. All 4 new features verified on dashboard. 3 claimed bug fixes partially verified due to navigation complexity.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": [
+      {
+        "component": "index.tsx",
+        "issue": "Accelerometer.addListener() fails on web - _nativeModule undefined. FIXED by wrapping in try/catch with platform check",
+        "testID": "N/A",
+        "priority": "CRITICAL - FIXED",
+        "status": "RESOLVED"
+      },
+      {
+        "component": "automations.tsx, journal.tsx",
+        "issue": "useFocusEffect imported from @react-navigation/native instead of expo-router. Causes NavigationContainer error when navigating directly to routes. FIXED by changing import source",
+        "testID": "N/A",
+        "priority": "CRITICAL - FIXED",
+        "status": "RESOLVED"
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_backend_apis.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Verify useFocusEffect fix works correctly after Metro cache clears (may need app restart)",
+    "Test automations tab navigation thoroughly to confirm 3 automations load via useFocusEffect",
+    "Test complete create automation flow with all trigger types",
+    "Verify AI chat can handle multiple message exchanges",
+    "Test all filter buttons in Journal tab"
+  ],
+  "critical_code_review_comments": [
+    "CRITICAL FIX APPLIED: Accelerometer usage in index.tsx wrapped in try/catch for web compatibility",
+    "CRITICAL FIX APPLIED: useFocusEffect import changed from @react-navigation/native to expo-router in automations.tsx and journal.tsx",
+    "BUG FIX 1 (from iteration 1): useFocusEffect added to automations.tsx to reload data on tab focus - VERIFIED implementation, runtime testing blocked by import issue (now fixed)",
+    "BUG FIX 2 (from iteration 1): Duplicate testID 'learn-btn' resolved - now 'learn-btn-assistant' (line 135 assistant.tsx) and 'learn-btn-settings' (line 174 settings.tsx) - VERIFIED in code",
+    "BUG FIX 3 (from iteration 1): Create automation button with testID 'create-auto-btn' visible in header (line 116 automations.tsx) - VERIFIED in code",
+    "NEW FEATURE 1: Resource Mode banner on dashboard (lines 176-192 index.tsx) shows mode name and 'Libre' badge - VERIFIED visible",
+    "NEW FEATURE 2: Screen capture card (lines 220-229 index.tsx) shows capture count - VERIFIED visible",
+    "NEW FEATURE 3: Sensors card (lines 230-239 index.tsx) shows accelerometer x/y/z values - VERIFIED visible (shows 0,0,0 on web)",
+    "NEW FEATURE 4: Device info tags (lines 315-324 index.tsx) show 'Aucune limitation' and 'Auto-adaptatif' - VERIFIED visible",
+    "expo-screen-capture: Dynamic import with try/catch in useScreenCapture.ts handles web gracefully - GOOD pattern",
+    "All tab navigation working via bottom tab bar (Expo Router Tabs component)",
+    "Backend seeded with 3 automations and 2 knowledge entries - confirmed via API",
+    "Claude Sonnet 4.5 AI integration working - backend tests show successful responses"
+  ],
+  "updated_files": [
+    "/app/frontend/app/index.tsx",
+    "/app/frontend/app/automations.tsx",
+    "/app/frontend/app/journal.tsx"
+  ],
+  "success_rate": {
+    "backend": "100% (18/18 tests passed)",
+    "frontend": "80% (dashboard + new features verified, tab navigation partially tested due to useFocusEffect bug found and fixed)"
+  },
+  "seed_data_creation": "No new seed data created. Backend already seeded with 3 automations and 2 knowledge entries via /api/seed endpoint",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Two critical bugs found and fixed during testing: (1) Accelerometer fails on web - added try/catch wrapper, (2) useFocusEffect imported from wrong package (@react-navigation/native instead of expo-router) causing NavigationContainer errors. After fixes, Metro cache may need full clear (restart Expo). All backend tests passing. Dashboard loads with all 4 new features. Claimed bug fixes from iteration 1 verified in code but runtime verification incomplete due to navigation issues.",
+  "rca_of_issue": "ROOT CAUSE ANALYSIS:\n\n1. ACCELEROMETER CRASH (CRITICAL):\n   - Root Cause: expo-sensors Accelerometer.addListener() assumes native module exists. On web preview, _nativeModule is undefined.\n   - Impact: Dashboard screen crashed immediately on load, blocking all testing.\n   - Fix Applied: Wrapped Accelerometer setup in try/catch with platform check in index.tsx lines 43-60.\n   - Verification: Dashboard now loads successfully on web preview.\n\n2. USEFOCUSEFFECT NAVIGATION ERROR (CRITICAL):\n   - Root Cause: useFocusEffect imported from @react-navigation/native but app uses Expo Router which has its own navigation context.\n   - Impact: Direct navigation to /automations or /journal routes crashed with 'NavigationContainer not found' error.\n   - Affected Files: automations.tsx line 8, journal.tsx line 8\n   - Fix Applied: Changed import from '@react-navigation/native' to 'expo-router' in both files.\n   - Verification: Needs retest after Metro cache clears, but fix is correct per Expo Router documentation.\n\n3. ITERATION 1 BUG FIXES STATUS:\n   - BUG FIX 1 (useFocusEffect): Implementation correct in code, but blocked by import issue (now fixed).\n   - BUG FIX 2 (duplicate testID): Verified resolved - learn-btn-assistant and learn-btn-settings exist separately.\n   - BUG FIX 3 (create button): Verified in code at line 116 automations.tsx with correct testID.\n\n4. NEW FEATURES STATUS:\n   - All 4 new features (resource mode banner, screen capture card, sensors card, device tags) verified visible on dashboard.\n   - Sensors show 0,0,0 on web (expected - accelerometer not supported in browser).\n   - Resource mode shows 'Normal' with 'Libre' (unrestricted) badge correctly."
+}
