@@ -68,3 +68,9 @@ export const generateDocumentation = () =>
   fetchAPI('/documentation/generate', { method: 'POST' });
 export const getStats = () => fetchAPI('/stats');
 export const seedData = () => fetchAPI('/seed', { method: 'POST' });
+
+// ADB
+export const getADBGuide = () => fetchAPI('/adb/guide');
+export const getADBConsent = () => fetchAPI('/adb/consent');
+export const setADBConsent = (accepted: boolean) =>
+  fetchAPI('/adb/consent', { method: 'POST', body: JSON.stringify({ accepted }) });

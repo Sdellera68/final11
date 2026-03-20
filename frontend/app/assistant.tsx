@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import { Colors, Sp, Rad, Fs } from '../src/theme';
 import { chatWithAI, getChatHistory, clearChatHistory, triggerLearning } from '../src/api';
 
@@ -13,7 +14,14 @@ interface Message {
   role: string;
   content: string;
   timestamp: string;
+  model?: string;
 }
+
+const MODEL_BADGE: Record<string, { label: string; color: string; icon: string }> = {
+  claude: { label: 'Claude', color: Colors.brand.primary, icon: 'zap' },
+  mistral: { label: 'Mistral', color: Colors.status.warning, icon: 'sun' },
+  local: { label: 'Local', color: Colors.status.error, icon: 'hard-drive' },
+};
 
 export default function Assistant() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -21,11 +29,12 @@ export default function Assistant() {
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [knowledgeCount, setKnowledgeCount] = useState(0);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const flatListRef = useRef<FlatList>(null);
 
   const loadHistory = useCallback(async () => {
     try {
-      const data = await getChatHistory();
+      const data = await getChatHistory('default', 500);
       setMessages(data || []);
     } catch (e) {
       console.log('History error:', e);
@@ -34,6 +43,16 @@ export default function Assistant() {
   }, []);
 
   useEffect(() => { loadHistory(); }, [loadHistory]);
+
+  const copyMessage = async (text: string, id: string) => {
+    try {
+      await Clipboard.setStringAsync(text);
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    } catch {
+      Alert.alert('Erreur', 'Impossible de copier le texte.');
+    }
+  };
 
   const sendMessage = async () => {
     const trimmed = input.trim();
@@ -57,14 +76,33 @@ export default function Assistant() {
         role: 'assistant',
         content: res.response,
         timestamp: new Date().toISOString(),
+        model: res.model || 'claude',
       };
       setMessages((prev) => [...prev, aiMsg]);
+      // Show actions executed
+      if (res.actions_executed && res.actions_executed.length > 0) {
+        const actionsSummary = res.actions_executed
+          .filter((a: any) => a.success)
+          .map((a: any) => a.message)
+          .join('\n');
+        if (actionsSummary) {
+          const actionMsg: Message = {
+            id: `action-${Date.now()}`,
+            role: 'system',
+            content: `Actions executees:\n${actionsSummary}`,
+            timestamp: new Date().toISOString(),
+            model: 'system',
+          };
+          setMessages((prev) => [...prev, actionMsg]);
+        }
+      }
     } catch (e: any) {
       const errMsg: Message = {
         id: `err-${Date.now()}`,
         role: 'assistant',
-        content: `Erreur de connexion. Veuillez réessayer.`,
+        content: 'Erreur de connexion. Veuillez reessayer.',
         timestamp: new Date().toISOString(),
+        model: 'local',
       };
       setMessages((prev) => [...prev, errMsg]);
     }
@@ -72,21 +110,16 @@ export default function Assistant() {
   };
 
   const handleClear = () => {
-    Alert.alert(
-      'Effacer l\'historique',
-      'Voulez-vous supprimer toutes les conversations ?',
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Effacer',
-          style: 'destructive',
-          onPress: async () => {
-            await clearChatHistory().catch(() => {});
-            setMessages([]);
-          },
+    Alert.alert('Effacer l\'historique', 'Voulez-vous supprimer toutes les conversations ?', [
+      { text: 'Annuler', style: 'cancel' },
+      {
+        text: 'Effacer', style: 'destructive',
+        onPress: async () => {
+          await clearChatHistory().catch(() => {});
+          setMessages([]);
         },
-      ],
-    );
+      },
+    ]);
   };
 
   const handleLearn = async () => {
@@ -101,23 +134,57 @@ export default function Assistant() {
 
   const renderMessage = ({ item }: { item: Message }) => {
     const isUser = item.role === 'user';
+    const isSystem = item.role === 'system';
+    const badge = item.model ? MODEL_BADGE[item.model] : null;
+    const isCopied = copiedId === item.id;
+
+    if (isSystem) {
+      return (
+        <View style={s.systemRow}>
+          <View style={s.systemBubble}>
+            <Feather name="check-circle" size={12} color={Colors.status.success} />
+            <Text style={s.systemText}>{item.content}</Text>
+          </View>
+        </View>
+      );
+    }
+
     return (
-      <View
-        testID={`msg-${item.id}`}
-        style={[s.msgRow, isUser ? s.msgRowUser : s.msgRowAI]}
-      >
+      <View testID={`msg-${item.id}`} style={[s.msgRow, isUser ? s.msgRowUser : s.msgRowAI]}>
         {!isUser && (
-          <View style={s.avatarAI}>
-            <Feather name="cpu" size={16} color={Colors.brand.primary} />
+          <View style={[s.avatarAI, badge && { borderColor: badge.color, borderWidth: 1.5 }]}>
+            <Feather name="cpu" size={16} color={badge?.color || Colors.brand.primary} />
           </View>
         )}
-        <View style={[s.bubble, isUser ? s.bubbleUser : s.bubbleAI]}>
-          <Text style={[s.bubbleText, isUser ? s.bubbleTextUser : s.bubbleTextAI]}>
-            {item.content}
-          </Text>
-          <Text style={s.bubbleTime}>
-            {item.timestamp ? new Date(item.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : ''}
-          </Text>
+        <View style={{ maxWidth: '78%' }}>
+          {/* Model badge for AI messages */}
+          {!isUser && badge && badge.label !== 'Claude' && (
+            <View style={[s.modelBadge, { backgroundColor: badge.color + '20' }]}>
+              <Feather name={badge.icon as any} size={10} color={badge.color} />
+              <Text style={[s.modelText, { color: badge.color }]}>{badge.label}</Text>
+            </View>
+          )}
+          <View style={[s.bubble, isUser ? s.bubbleUser : s.bubbleAI]}>
+            <Text style={[s.bubbleText, isUser ? s.bubbleTextUser : s.bubbleTextAI]}>
+              {item.content}
+            </Text>
+            <View style={s.bubbleFooter}>
+              <Text style={s.bubbleTime}>
+                {item.timestamp ? new Date(item.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : ''}
+              </Text>
+              <TouchableOpacity
+                testID={`copy-${item.id}`}
+                onPress={() => copyMessage(item.content, item.id)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Feather
+                  name={isCopied ? 'check' : 'copy'}
+                  size={13}
+                  color={isCopied ? Colors.status.success : Colors.text.tertiary}
+                />
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       </View>
     );
@@ -125,11 +192,10 @@ export default function Assistant() {
 
   return (
     <SafeAreaView style={s.safe} edges={['top']}>
-      {/* Header */}
       <View style={s.header}>
         <View>
           <Text style={s.headerTitle}>Assistant ARIA</Text>
-          <Text style={s.headerSub}>{knowledgeCount} connaissances acquises</Text>
+          <Text style={s.headerSub}>{knowledgeCount} connaissances | Mode debride</Text>
         </View>
         <View style={s.headerActions}>
           <TouchableOpacity testID="learn-btn-assistant" onPress={handleLearn} style={s.headerBtn}>
@@ -157,7 +223,8 @@ export default function Assistant() {
             </View>
             <Text style={s.emptyTitle}>Bonjour !</Text>
             <Text style={s.emptyText}>
-              Je suis ARIA, votre assistant intelligent. Posez-moi une question sur votre appareil ou demandez-moi d'automatiser une tâche.
+              Je suis ARIA, votre assistant IA debride. Je peux automatiser, analyser et optimiser votre appareil.
+              {'\n\n'}3 niveaux d'IA: Claude (principal) → Mistral (fallback) → Mode local
             </Text>
           </View>
         ) : (
@@ -172,19 +239,18 @@ export default function Assistant() {
           />
         )}
 
-        {/* Input */}
         <View style={s.inputBar}>
           {loading && (
             <View style={s.typingRow}>
               <ActivityIndicator size="small" color={Colors.brand.primary} />
-              <Text style={s.typingText}>ARIA réfléchit...</Text>
+              <Text style={s.typingText}>ARIA reflechit...</Text>
             </View>
           )}
           <View style={s.inputRow}>
             <TextInput
               testID="chat-input"
               style={s.input}
-              placeholder="Écrire un message..."
+              placeholder="Ecrire un message..."
               placeholderTextColor={Colors.text.tertiary}
               value={input}
               onChangeText={setInput}
@@ -214,13 +280,9 @@ const s = StyleSheet.create({
   flex: { flex: 1 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: Sp.xl,
-    paddingVertical: Sp.lg,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border.subtle,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: Sp.xl, paddingVertical: Sp.lg,
+    borderBottomWidth: 1, borderBottomColor: Colors.border.subtle,
   },
   headerTitle: { fontSize: Fs.xl, fontWeight: '800', color: Colors.text.primary },
   headerSub: { fontSize: Fs.xs, color: Colors.brand.primary, marginTop: 2 },
@@ -236,26 +298,37 @@ const s = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center',
     marginRight: Sp.sm,
   },
-  bubble: { maxWidth: '78%', padding: Sp.lg, borderRadius: Rad.xl },
-  bubbleUser: {
-    backgroundColor: Colors.brand.primary,
-    borderBottomRightRadius: Sp.xs,
+  modelBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    paddingHorizontal: 6, paddingVertical: 2, borderRadius: Rad.full,
+    alignSelf: 'flex-start', marginBottom: 3,
   },
+  modelText: { fontSize: 9, fontWeight: '700' },
+  bubble: { padding: Sp.lg, borderRadius: Rad.xl },
+  bubbleUser: { backgroundColor: Colors.brand.primary, borderBottomRightRadius: Sp.xs },
   bubbleAI: {
-    backgroundColor: Colors.bg.secondary,
-    borderBottomLeftRadius: Sp.xs,
-    borderWidth: 1,
-    borderColor: Colors.border.subtle,
+    backgroundColor: Colors.bg.secondary, borderBottomLeftRadius: Sp.xs,
+    borderWidth: 1, borderColor: Colors.border.subtle,
   },
   bubbleText: { fontSize: Fs.base, lineHeight: 22 },
   bubbleTextUser: { color: Colors.brand.fg },
   bubbleTextAI: { color: Colors.text.primary },
-  bubbleTime: { fontSize: Fs.xs, color: Colors.text.tertiary, marginTop: Sp.xs, alignSelf: 'flex-end' },
+  bubbleFooter: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    marginTop: Sp.xs,
+  },
+  bubbleTime: { fontSize: Fs.xs, color: Colors.text.tertiary },
+  systemRow: { alignItems: 'center', marginVertical: Sp.sm },
+  systemBubble: {
+    flexDirection: 'row', alignItems: 'center', gap: Sp.xs,
+    backgroundColor: Colors.status.success + '15',
+    paddingHorizontal: Sp.md, paddingVertical: Sp.xs,
+    borderRadius: Rad.full,
+  },
+  systemText: { fontSize: Fs.xs, color: Colors.status.success },
   inputBar: {
-    borderTopWidth: 1,
-    borderTopColor: Colors.border.subtle,
-    paddingHorizontal: Sp.lg,
-    paddingVertical: Sp.sm,
+    borderTopWidth: 1, borderTopColor: Colors.border.subtle,
+    paddingHorizontal: Sp.lg, paddingVertical: Sp.sm,
     paddingBottom: Platform.OS === 'ios' ? Sp.lg : Sp.sm,
     backgroundColor: Colors.bg.primary,
   },
@@ -263,16 +336,10 @@ const s = StyleSheet.create({
   typingText: { fontSize: Fs.xs, color: Colors.brand.primary },
   inputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: Sp.sm },
   input: {
-    flex: 1,
-    backgroundColor: Colors.bg.secondary,
-    borderRadius: Rad.xl,
-    paddingHorizontal: Sp.lg,
-    paddingVertical: Sp.md,
-    color: Colors.text.primary,
-    fontSize: Fs.base,
-    maxHeight: 120,
-    borderWidth: 1,
-    borderColor: Colors.border.subtle,
+    flex: 1, backgroundColor: Colors.bg.secondary, borderRadius: Rad.xl,
+    paddingHorizontal: Sp.lg, paddingVertical: Sp.md,
+    color: Colors.text.primary, fontSize: Fs.base, maxHeight: 120,
+    borderWidth: 1, borderColor: Colors.border.subtle,
   },
   sendBtn: {
     width: 48, height: 48, borderRadius: 24,
@@ -284,8 +351,7 @@ const s = StyleSheet.create({
   emptyIcon: {
     width: 80, height: 80, borderRadius: 40,
     backgroundColor: 'rgba(93,138,168,0.15)',
-    justifyContent: 'center', alignItems: 'center',
-    marginBottom: Sp.xl,
+    justifyContent: 'center', alignItems: 'center', marginBottom: Sp.xl,
   },
   emptyTitle: { fontSize: Fs.xxl, fontWeight: '800', color: Colors.text.primary, marginBottom: Sp.sm },
   emptyText: { fontSize: Fs.base, color: Colors.text.secondary, textAlign: 'center', lineHeight: 22 },

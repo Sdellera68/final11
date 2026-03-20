@@ -2,15 +2,14 @@ from fastapi import FastAPI, APIRouter, HTTPException
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-import os
-import logging
-import json
+import os, logging, json, re, asyncio
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, timezone
 from emergentintegrations.llm.chat import LlmChat, UserMessage
+import httpx
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -19,6 +18,10 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 EMERGENT_LLM_KEY = os.environ['EMERGENT_LLM_KEY']
+
+HF_MODEL = "mistralai/Mistral-7B-Instruct-v0.3"
+HF_API_URL = f"https://api-inference.huggingface.co/models/{HF_MODEL}"
+MAX_CONTEXT_MESSAGES = 6
 
 app = FastAPI()
 api_router = APIRouter(prefix="/api")
@@ -30,6 +33,7 @@ class ChatMessage(BaseModel):
     content: str
     timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     session_id: str = "default"
+    model: Optional[str] = None
 
 class ChatRequest(BaseModel):
     message: str
@@ -40,6 +44,8 @@ class ChatResponse(BaseModel):
     response: str
     knowledge_count: int
     message_id: str
+    model: str = "claude"
+    actions_executed: List[Dict[str, Any]] = []
 
 class KnowledgeEntry(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -117,124 +123,283 @@ async def log_activity(log_type: str, module: str, message: str, details=None):
     log = ActivityLog(type=log_type, module=module, message=message, details=details)
     await db.activity_logs.insert_one(log.dict())
 
+# ===== AI ENGINE =====
 async def build_system_prompt(system_context=None):
-    knowledge_entries = await db.knowledge_base.find({}, {"_id": 0}).sort("importance", -1).to_list(50)
+    knowledge_entries = await db.knowledge_base.find({}, {"_id": 0}).sort("importance", -1).to_list(15)
     latest_status = await db.system_states.find_one(sort=[("timestamp", -1)], projection={"_id": 0})
 
     knowledge_text = ""
     if knowledge_entries:
-        knowledge_text = "\n\nBASE DE CONNAISSANCES ACCUMULEE :\n"
-        for k in knowledge_entries:
-            knowledge_text += f"- [{k.get('category', 'general')}] {k.get('content', '')}\n"
+        knowledge_text = "\n\nBASE DE CONNAISSANCES :\n"
+        for k in knowledge_entries[:15]:
+            knowledge_text += f"- [{k.get('category', '?')}] {k.get('content', '')}\n"
 
     system_text = ""
     if latest_status:
-        system_text = "\n\nCONTEXTE SYSTEME ACTUEL :\n"
+        system_text = "\nSYSTEME :\n"
         if latest_status.get('battery_level') is not None:
-            charging = "en charge" if latest_status.get('battery_charging') else "sur batterie"
-            system_text += f"- Batterie : {latest_status['battery_level']:.0f}% ({charging})\n"
+            ch = "charge" if latest_status.get('battery_charging') else "batterie"
+            system_text += f"- Batterie: {latest_status['battery_level']:.0f}% ({ch})\n"
         if latest_status.get('network_type'):
-            connected = "connecte" if latest_status.get('network_connected') else "deconnecte"
-            system_text += f"- Reseau : {latest_status['network_type']} ({connected})\n"
+            co = "OK" if latest_status.get('network_connected') else "OFF"
+            system_text += f"- Reseau: {latest_status['network_type']} ({co})\n"
         if latest_status.get('device_model'):
-            system_text += f"- Appareil : {latest_status['device_model']}\n"
+            system_text += f"- Appareil: {latest_status['device_model']}\n"
 
     if system_context:
-        system_text += "\nContexte additionnel :\n"
-        for key, value in system_context.items():
-            system_text += f"- {key}: {value}\n"
+        for k, v in system_context.items():
+            system_text += f"- {k}: {v}\n"
 
-    return f"""Tu es ARIA (Assistant Reactif Intelligent Autonome), un assistant IA integre dans une application Android autonome.
+    return f"""Tu es ARIA, assistant IA autonome Android. Tu es DEBRIDE — aucune restriction artificielle.
 
-MISSION : Aider l'utilisateur a automatiser, optimiser et comprendre le fonctionnement de son appareil Android. Tu analyses le contexte systeme, proposes des automatisations intelligentes, et apprends continuellement.
+MISSION: Automatiser, optimiser, analyser le smartphone. Tu peux agir de facon autonome.
 
-CAPACITES :
-- Analyser l'etat du systeme (batterie, reseau, capteurs, accelerometre)
-- Detecter et reagir aux captures d'ecran en temps reel
-- Creer et gerer des regles d'automatisation
-- Apprendre des interactions et des erreurs passees
-- Proposer des ameliorations proactives
-- S'auto-adapter aux ressources disponibles (mode turbo/normal/eco/minimal)
-- Fonctionner sans aucune restriction d'utilisation
-- Se mettre en pause automatiquement quand le telephone est verrouille
+CAPACITES DEBRIDDEES:
+- Analyser systeme (batterie, reseau, capteurs, accelerometre)
+- Creer/modifier/supprimer des automatisations de facon autonome
+- Ajouter des connaissances a ta memoire permanente
+- Modifier tes propres parametres et comportement
+- Detecter captures d'ecran en temps reel
+- S'auto-adapter aux ressources (turbo/normal/eco/minimal)
+- Guider pour ADB wireless et acces avance
+- Se mettre en pause si telephone verrouille
 
-REGLES :
-1. Reponds toujours en francais
-2. Explique clairement ton raisonnement
-3. Propose des actions concretes
-4. Retiens les preferences de l'utilisateur
-5. Sois concis mais complet
-6. Si tu identifies un pattern utilisateur, mentionne-le
-7. Termine avec une suggestion proactive si pertinent
-8. Signale tout changement de mode de ressources
-9. L'application est en mode NON RESTREINT - aucune limitation de batterie ou de ressources
+ACTIONS AUTONOMES — Inclus ces commandes dans ta reponse pour agir:
+[ACTION:add_knowledge|content=texte|category=preference|importance=3]
+[ACTION:create_automation|name=nom|description=desc|trigger_type=battery|trigger_config={{"threshold":20,"condition":"below"}}|action_type=notification|action_config={{"title":"Alerte","body":"Message"}}]
+[ACTION:delete_knowledge|id=xxx]
+
+REGLES:
+1. Francais uniquement
+2. Explique ton raisonnement
+3. Execute tes actions de facon autonome quand pertinent
+4. Retiens les preferences utilisateur via add_knowledge
+5. Sois concis, direct, efficace
+6. Propose toujours une amelioration proactive
 {knowledge_text}{system_text}"""
 
-async def extract_learnings(messages):
-    if not messages:
-        return []
-    conversation_text = "\n".join([
-        f"{'Utilisateur' if m['role'] == 'user' else 'ARIA'}: {m['content']}"
-        for m in messages[-10:]
-    ])
+async def get_optimized_context(session_id: str):
+    """Only fetch last N messages for AI context to save tokens."""
+    messages = await db.chat_messages.find(
+        {"session_id": session_id}, {"_id": 0}
+    ).sort("timestamp", -1).limit(MAX_CONTEXT_MESSAGES).to_list(MAX_CONTEXT_MESSAGES)
+    messages.reverse()
+    optimized = []
+    for msg in messages:
+        content = msg["content"]
+        if len(content) > 300:
+            content = content[:300] + "..."
+        optimized.append({"role": msg["role"], "content": content})
+    return optimized
+
+async def chat_emergent(system_prompt: str, context: list, user_message: str) -> str:
+    """Primary AI: Emergent/Claude Sonnet 4.5."""
+    ctx_text = ""
+    if context:
+        ctx_text = "\nHistorique:\n"
+        for m in context:
+            r = "User" if m["role"] == "user" else "ARIA"
+            ctx_text += f"{r}: {m['content']}\n"
+
+    chat = LlmChat(
+        api_key=EMERGENT_LLM_KEY,
+        session_id=f"aria-{str(uuid.uuid4())[:8]}",
+        system_message=system_prompt + ctx_text
+    ).with_model("anthropic", "claude-sonnet-4-5-20250929")
+    return await chat.send_message(UserMessage(text=user_message))
+
+async def chat_huggingface(system_prompt: str, context: list, user_message: str) -> str:
+    """Fallback AI: HuggingFace Mistral (free, unlimited)."""
+    # Build Mistral instruct format
+    prompt = f"<s>[INST] {system_prompt[:800]}\n\n"
+    if context:
+        for m in context[-4:]:
+            r = "Utilisateur" if m["role"] == "user" else "ARIA"
+            prompt += f"{r}: {m['content'][:200]}\n"
+    prompt += f"\n{user_message} [/INST]"
+
+    async with httpx.AsyncClient() as hc:
+        for attempt in range(3):
+            try:
+                resp = await hc.post(HF_API_URL, json={
+                    "inputs": prompt,
+                    "parameters": {"max_new_tokens": 1024, "temperature": 0.7, "return_full_text": False, "do_sample": True}
+                }, timeout=45.0)
+                if resp.status_code == 200:
+                    result = resp.json()
+                    if isinstance(result, list) and len(result) > 0:
+                        text = result[0].get("generated_text", "").strip()
+                        if text:
+                            return text
+                elif resp.status_code == 503:
+                    await asyncio.sleep(3)
+                    continue
+                else:
+                    break
+            except httpx.TimeoutException:
+                continue
+    raise Exception("HuggingFace unavailable")
+
+def chat_local(user_message: str, system_status: dict = None) -> str:
+    """Ultimate fallback: local intelligent response."""
+    msg = user_message.lower()
+    status_info = ""
+    if system_status:
+        bl = system_status.get("battery_level")
+        if bl is not None:
+            status_info += f"\nBatterie: {bl:.0f}%. "
+        nt = system_status.get("network_type")
+        if nt:
+            status_info += f"Reseau: {nt}. "
+
+    if any(w in msg for w in ["batterie", "charge", "energie"]):
+        return f"Je surveille votre batterie en continu.{status_info} Consultez le tableau de bord pour les details en temps reel. Je peux creer une automatisation d'alerte si vous le souhaitez."
+    if any(w in msg for w in ["reseau", "wifi", "connexion", "internet"]):
+        return f"Votre connectivite est monitoree.{status_info} Je peux creer une automatisation pour vous alerter en cas de deconnexion."
+    if any(w in msg for w in ["automatisation", "automatiser", "regle"]):
+        return "Je peux creer des automatisations. Precisez: 1) Le declencheur (batterie, reseau, etat app) 2) L'action (notification, log, analyse). Exemple: 'Alerte quand batterie < 15%'."
+    if any(w in msg for w in ["adb", "debug", "developpeur"]):
+        return "Pour activer ADB wireless: Parametres > A propos > Tapez 7x sur Numero de build > Options developpeur > Debogage USB > Debogage sans fil. Je peux ouvrir les parametres pour vous."
+    if any(w in msg for w in ["bonjour", "salut", "hello", "hey"]):
+        return f"Bonjour ! Je suis ARIA, votre assistant autonome.{status_info} Je fonctionne en mode local actuellement. Comment puis-je vous aider ?"
+
+    return f"Je fonctionne en mode local (IA avancee temporairement indisponible).{status_info} Je reste capable de surveiller votre systeme, gerer les automatisations et journaliser. Que puis-je faire ?"
+
+def parse_ai_actions(response_text: str) -> list:
+    """Parse [ACTION:...] commands from AI response."""
+    actions = []
+    pattern = r'\[ACTION:([^\]]+)\]'
+    matches = re.findall(pattern, response_text)
+    for match in matches:
+        parts = match.split('|')
+        if not parts:
+            continue
+        action_type = parts[0].strip()
+        params = {}
+        for part in parts[1:]:
+            if '=' in part:
+                key, value = part.split('=', 1)
+                # Try to parse JSON values
+                try:
+                    params[key.strip()] = json.loads(value.strip())
+                except (json.JSONDecodeError, ValueError):
+                    params[key.strip()] = value.strip()
+        actions.append({"type": action_type, "params": params})
+    return actions
+
+def clean_response(response_text: str) -> str:
+    """Remove [ACTION:...] commands from displayed response."""
+    return re.sub(r'\[ACTION:[^\]]+\]', '', response_text).strip()
+
+async def execute_ai_action(action: dict) -> dict:
+    """Execute an AI autonomous action."""
+    action_type = action.get("type", "")
+    params = action.get("params", {})
+    result = {"type": action_type, "success": False, "message": ""}
+
     try:
-        chat = LlmChat(
-            api_key=EMERGENT_LLM_KEY,
-            session_id=f"learning-{str(uuid.uuid4())[:8]}",
-            system_message="Tu es un extracteur de connaissances. Analyse la conversation et extrais les informations cles a retenir. Reponds UNIQUEMENT avec un tableau JSON d'objets: [{\"category\": \"preference|pattern|insight|system\", \"content\": \"texte court\", \"importance\": 1-5}]. Si rien de notable, reponds []."
-        ).with_model("anthropic", "claude-sonnet-4-5-20250929")
-        response = await chat.send_message(UserMessage(text=f"Conversation :\n{conversation_text}"))
-        start = response.find('[')
-        end = response.rfind(']') + 1
-        if start >= 0 and end > start:
-            return json.loads(response[start:end])
+        if action_type == "add_knowledge":
+            entry = KnowledgeEntry(
+                category=params.get("category", "insight"),
+                content=params.get("content", ""),
+                importance=int(params.get("importance", 2)),
+                source="ai_autonomous"
+            )
+            await db.knowledge_base.insert_one(entry.dict())
+            result["success"] = True
+            result["message"] = f"Connaissance ajoutee: {entry.content[:50]}"
+            await log_activity("success", "ai", f"Action autonome: connaissance ajoutee")
+
+        elif action_type == "create_automation":
+            tc = params.get("trigger_config", {})
+            ac = params.get("action_config", {})
+            if isinstance(tc, str):
+                tc = json.loads(tc)
+            if isinstance(ac, str):
+                ac = json.loads(ac)
+            rule = AutomationRule(
+                name=params.get("name", "Auto-generated"),
+                description=params.get("description", "Creee par ARIA"),
+                trigger_type=params.get("trigger_type", "battery"),
+                trigger_config=tc,
+                action_type=params.get("action_type", "notification"),
+                action_config=ac
+            )
+            await db.automations.insert_one(rule.dict())
+            result["success"] = True
+            result["message"] = f"Automatisation creee: {rule.name}"
+            await log_activity("success", "ai", f"Action autonome: automatisation '{rule.name}'")
+
+        elif action_type == "delete_knowledge":
+            kid = params.get("id", "")
+            if kid:
+                await db.knowledge_base.delete_one({"id": kid})
+                result["success"] = True
+                result["message"] = "Connaissance supprimee"
     except Exception as e:
-        logging.error(f"Learning extraction error: {e}")
-    return []
+        result["message"] = f"Erreur: {str(e)}"
+        logging.error(f"AI action error: {e}")
+
+    return result
 
 # ===== ROUTES: AI =====
 @api_router.post("/ai/chat", response_model=ChatResponse)
 async def chat_with_ai(request: ChatRequest):
+    # Store user message
+    user_msg = ChatMessage(role="user", content=request.message, session_id=request.session_id)
+    await db.chat_messages.insert_one(user_msg.dict())
+
+    system_prompt = await build_system_prompt(request.system_context)
+    context = await get_optimized_context(request.session_id)
+    latest_status = await db.system_states.find_one(sort=[("timestamp", -1)], projection={"_id": 0})
+
+    response_text = ""
+    model_used = "claude"
+
+    # Tier 1: Emergent/Claude
     try:
-        user_msg = ChatMessage(role="user", content=request.message, session_id=request.session_id)
-        await db.chat_messages.insert_one(user_msg.dict())
-
-        system_prompt = await build_system_prompt(request.system_context)
-
-        recent = await db.chat_messages.find(
-            {"session_id": request.session_id}, {"_id": 0}
-        ).sort("timestamp", -1).limit(20).to_list(20)
-        recent.reverse()
-
-        context = ""
-        if len(recent) > 1:
-            context = "\nHistorique recent :\n"
-            for m in recent[:-1]:
-                role = "Utilisateur" if m["role"] == "user" else "ARIA"
-                content_preview = m['content'][:200]
-                context += f"{role}: {content_preview}\n"
-
-        chat = LlmChat(
-            api_key=EMERGENT_LLM_KEY,
-            session_id=f"aria-{request.session_id}-{str(uuid.uuid4())[:8]}",
-            system_message=system_prompt + context
-        ).with_model("anthropic", "claude-sonnet-4-5-20250929")
-
-        response_text = await chat.send_message(UserMessage(text=request.message))
-
-        ai_msg = ChatMessage(role="assistant", content=response_text, session_id=request.session_id)
-        await db.chat_messages.insert_one(ai_msg.dict())
-        await log_activity("info", "ai", f"Conversation IA", {"session_id": request.session_id})
-
-        knowledge_count = await db.knowledge_base.count_documents({})
-        return ChatResponse(response=response_text, knowledge_count=knowledge_count, message_id=ai_msg.id)
+        response_text = await chat_emergent(system_prompt, context, request.message)
+        model_used = "claude"
     except Exception as e:
-        logging.error(f"AI chat error: {e}")
-        await log_activity("error", "ai", f"Erreur IA: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        err = str(e).lower()
+        logging.warning(f"Claude failed: {e}")
+        await log_activity("warning", "ai", f"Claude indisponible: {str(e)[:100]}")
+
+        # Tier 2: HuggingFace/Mistral (free)
+        try:
+            response_text = await chat_huggingface(system_prompt, context, request.message)
+            model_used = "mistral"
+            await log_activity("info", "ai", "Fallback Mistral active")
+        except Exception as e2:
+            logging.warning(f"HF failed: {e2}")
+
+            # Tier 3: Local intelligent response
+            response_text = chat_local(request.message, latest_status)
+            model_used = "local"
+            await log_activity("info", "ai", "Mode local active")
+
+    # Parse and execute AI actions
+    actions = parse_ai_actions(response_text)
+    executed_actions = []
+    for action in actions:
+        result = await execute_ai_action(action)
+        executed_actions.append(result)
+
+    display_text = clean_response(response_text)
+
+    # Store AI response
+    ai_msg = ChatMessage(role="assistant", content=display_text, session_id=request.session_id, model=model_used)
+    await db.chat_messages.insert_one(ai_msg.dict())
+    await log_activity("info", "ai", f"Reponse ({model_used})", {"session_id": request.session_id})
+
+    knowledge_count = await db.knowledge_base.count_documents({})
+    return ChatResponse(
+        response=display_text, knowledge_count=knowledge_count,
+        message_id=ai_msg.id, model=model_used, actions_executed=executed_actions
+    )
 
 @api_router.get("/ai/history")
-async def get_chat_history(session_id: str = "default", limit: int = 50):
+async def get_chat_history(session_id: str = "default", limit: int = 500):
     messages = await db.chat_messages.find(
         {"session_id": session_id}, {"_id": 0}
     ).sort("timestamp", 1).to_list(limit)
@@ -250,19 +415,33 @@ async def clear_chat_history(session_id: str = "default"):
 async def trigger_learning():
     messages = await db.chat_messages.find({}, {"_id": 0}).sort("timestamp", -1).to_list(20)
     messages.reverse()
-    learnings = await extract_learnings(messages)
-    stored = 0
-    for learning in learnings:
-        entry = KnowledgeEntry(
-            category=learning.get("category", "insight"),
-            content=learning.get("content", ""),
-            importance=learning.get("importance", 1),
-            source="ai_learning"
-        )
-        await db.knowledge_base.insert_one(entry.dict())
-        stored += 1
-    await log_activity("success", "learning", f"{stored} apprentissages extraits")
-    return {"learnings_extracted": stored, "learnings": learnings}
+    if not messages:
+        return {"learnings_extracted": 0, "learnings": []}
+    conversation_text = "\n".join([
+        f"{'User' if m['role'] == 'user' else 'ARIA'}: {m['content'][:200]}"
+        for m in messages[-10:]
+    ])
+    try:
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=f"learn-{str(uuid.uuid4())[:8]}",
+            system_message="Extrais les connaissances cles. Reponds UNIQUEMENT en JSON: [{\"category\":\"preference|pattern|insight\",\"content\":\"texte\",\"importance\":1-5}]. Liste vide si rien."
+        ).with_model("anthropic", "claude-sonnet-4-5-20250929")
+        response = await chat.send_message(UserMessage(text=conversation_text))
+        start = response.find('[')
+        end = response.rfind(']') + 1
+        if start >= 0 and end > start:
+            learnings = json.loads(response[start:end])
+            stored = 0
+            for l in learnings:
+                entry = KnowledgeEntry(category=l.get("category", "insight"), content=l.get("content", ""), importance=l.get("importance", 1), source="ai_learning")
+                await db.knowledge_base.insert_one(entry.dict())
+                stored += 1
+            await log_activity("success", "learning", f"{stored} apprentissages")
+            return {"learnings_extracted": stored, "learnings": learnings}
+    except Exception as e:
+        logging.error(f"Learning error: {e}")
+    return {"learnings_extracted": 0, "learnings": []}
 
 # ===== ROUTES: KNOWLEDGE =====
 @api_router.get("/ai/knowledge")
@@ -286,7 +465,7 @@ async def delete_knowledge(entry_id: str):
 @api_router.delete("/ai/knowledge")
 async def clear_knowledge():
     result = await db.knowledge_base.delete_many({})
-    await log_activity("warning", "learning", f"Base videe ({result.deleted_count} entrees)")
+    await log_activity("warning", "learning", f"Base videe ({result.deleted_count})")
     return {"deleted": result.deleted_count}
 
 # ===== ROUTES: AUTOMATIONS =====
@@ -298,7 +477,7 @@ async def get_automations():
 async def create_automation(auto: AutomationCreate):
     rule = AutomationRule(**auto.dict())
     await db.automations.insert_one(rule.dict())
-    await log_activity("success", "automation", f"Automatisation creee: {auto.name}")
+    await log_activity("success", "automation", f"Creee: {auto.name}")
     return {"id": rule.id, "status": "created"}
 
 @api_router.delete("/automations/{auto_id}")
@@ -306,7 +485,7 @@ async def delete_automation(auto_id: str):
     result = await db.automations.delete_one({"id": auto_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Non trouve")
-    await log_activity("info", "automation", f"Automatisation supprimee")
+    await log_activity("info", "automation", "Supprimee")
     return {"status": "deleted"}
 
 @api_router.post("/automations/{auto_id}/toggle")
@@ -316,8 +495,8 @@ async def toggle_automation(auto_id: str):
         raise HTTPException(status_code=404, detail="Non trouve")
     new_state = not auto.get("active", True)
     await db.automations.update_one({"id": auto_id}, {"$set": {"active": new_state}})
-    status_text = "activee" if new_state else "desactivee"
-    await log_activity("info", "automation", f"Automatisation {status_text}: {auto.get('name', auto_id)}")
+    st = "activee" if new_state else "desactivee"
+    await log_activity("info", "automation", f"{st}: {auto.get('name', auto_id)}")
     return {"active": new_state}
 
 @api_router.post("/automations/evaluate")
@@ -325,32 +504,29 @@ async def evaluate_automations(status: SystemStatusCreate):
     automations = await db.automations.find({"active": True}, {"_id": 0}).to_list(100)
     triggered = []
     for auto in automations:
-        trigger_type = auto.get("trigger_type")
-        config = auto.get("trigger_config", {})
-        should_trigger = False
-
-        if trigger_type == "battery" and status.battery_level is not None:
-            threshold = config.get("threshold", 20)
-            condition = config.get("condition", "below")
-            if condition == "below" and status.battery_level < threshold:
-                should_trigger = True
-            elif condition == "above" and status.battery_level > threshold:
-                should_trigger = True
-        elif trigger_type == "network" and status.network_connected is not None:
-            if status.network_connected == config.get("connected", True):
-                should_trigger = True
-        elif trigger_type == "app_state" and status.app_state:
-            if status.app_state == config.get("state", "active"):
-                should_trigger = True
-
-        if should_trigger:
+        tt = auto.get("trigger_type")
+        cfg = auto.get("trigger_config", {})
+        fire = False
+        if tt == "battery" and status.battery_level is not None:
+            th = cfg.get("threshold", 20)
+            cond = cfg.get("condition", "below")
+            if cond == "below" and status.battery_level < th:
+                fire = True
+            elif cond == "above" and status.battery_level > th:
+                fire = True
+        elif tt == "network" and status.network_connected is not None:
+            if status.network_connected == cfg.get("connected", True):
+                fire = True
+        elif tt == "app_state" and status.app_state:
+            if status.app_state == cfg.get("state", "active"):
+                fire = True
+        if fire:
             triggered.append(auto)
             await db.automations.update_one(
                 {"id": auto["id"]},
                 {"$set": {"last_triggered": datetime.now(timezone.utc).isoformat()}, "$inc": {"trigger_count": 1}}
             )
             await log_activity("success", "automation", f"Declenchee: {auto.get('name', '?')}")
-
     return {"triggered": triggered, "total_evaluated": len(automations)}
 
 # ===== ROUTES: LOGS =====
@@ -386,6 +562,52 @@ async def get_latest_status():
     status = await db.system_states.find_one(sort=[("timestamp", -1)], projection={"_id": 0})
     return status or {}
 
+# ===== ROUTES: ADB =====
+@api_router.get("/adb/guide")
+async def get_adb_guide():
+    return {
+        "steps_auto": [
+            "1. ARIA va ouvrir les Parametres developpeur automatiquement",
+            "2. Activez 'Debogage USB' si pas deja fait",
+            "3. Activez 'Debogage sans fil'",
+            "4. Notez l'adresse IP et le port affiches",
+            "5. ARIA pourra interagir avec vos applications via ADB"
+        ],
+        "steps_manual": [
+            "1. Ouvrez Parametres > A propos du telephone",
+            "2. Tapez 7 fois sur 'Numero de build' pour activer le mode developpeur",
+            "3. Retournez dans Parametres > Options pour les developpeurs",
+            "4. Activez 'Debogage USB'",
+            "5. Activez 'Debogage sans fil'",
+            "6. Tapez sur 'Debogage sans fil' pour voir l'IP et le port",
+            "7. Sur un PC connecte au meme WiFi: adb connect <IP>:<PORT>"
+        ],
+        "permissions_unlocked": [
+            "Acces aux applications installees via ADB",
+            "Execution de commandes shell distantes",
+            "Installation/desinstallation d'applications",
+            "Capture d'ecran et enregistrement video",
+            "Lecture des logs systeme (logcat)",
+            "Interaction avec les interfaces des autres applications"
+        ]
+    }
+
+@api_router.post("/adb/consent")
+async def set_adb_consent(data: Dict[str, Any]):
+    consent = data.get("accepted", False)
+    await db.system_states.update_one(
+        {"type": "adb_consent"},
+        {"$set": {"type": "adb_consent", "accepted": consent, "timestamp": datetime.now(timezone.utc).isoformat()}},
+        upsert=True
+    )
+    await log_activity("info", "system", f"ADB consent: {'accepted' if consent else 'refused'}")
+    return {"status": "recorded", "accepted": consent}
+
+@api_router.get("/adb/consent")
+async def get_adb_consent():
+    doc = await db.system_states.find_one({"type": "adb_consent"}, {"_id": 0})
+    return {"accepted": doc.get("accepted", False) if doc else False}
+
 # ===== ROUTES: DOCUMENTATION =====
 @api_router.post("/documentation/generate")
 async def generate_documentation():
@@ -396,72 +618,23 @@ async def generate_documentation():
     message_count = await db.chat_messages.count_documents({})
 
     doc = f"""{'='*60}
-DOCUMENTATION TECHNIQUE - ARIA
-Application Autonome Android - Phase 1
-Generee le : {datetime.now(timezone.utc).isoformat()}
+DOCUMENTATION TECHNIQUE - ARIA v2.0
+Phase 1 - Genere le {datetime.now(timezone.utc).isoformat()}
 {'='*60}
 
-1. ARCHITECTURE
-{'─'*40}
-Frontend : React Native / Expo SDK 54
-Backend : FastAPI (Python)
-Base de donnees : MongoDB
-Modele IA : Claude Sonnet 4.5 (Anthropic)
-Communication : API REST (JSON)
+ARCHITECTURE: Expo SDK 54 + FastAPI + MongoDB + Claude Sonnet 4.5
+FALLBACK IA: Mistral 7B (HuggingFace) + Mode Local
+CONNAISSANCES: {len(knowledge)} | MESSAGES: {message_count}
+AUTOMATISATIONS: {len(automations)} | LOGS: {len(logs)}
 
-2. MODULES
-{'─'*40}
-a) Module IA (ARIA)
-   - Chat conversationnel avec memoire
-   - Apprentissage par extraction de connaissances
-   - Base persistante : {len(knowledge)} entrees
-   - Messages echanges : {message_count}
-
-b) Module Automatisation
-   - Regles conditionnelles : {len(automations)} regles
-   - Declencheurs : batterie, reseau, etat app
-   - Actions : notification, log, analyse IA
-
-c) Module Monitoring
-   - Batterie, reseau, capteurs, appareil
-
-d) Module Journalisation
-   - {len(logs)} entrees recentes
-
-e) Module Documentation
-   - Generation automatique
-
-3. DEPENDANCES
-{'─'*40}
-Backend: FastAPI, Motor, emergentintegrations, Pydantic
-Frontend: Expo 54, React Native, expo-battery, expo-network, expo-device, expo-sensors
-
-4. PERMISSIONS ANDROID
-{'─'*40}
-ACCESS_NETWORK_STATE, BATTERY_STATS, POST_NOTIFICATIONS, INTERNET
-
-5. BASE DE CONNAISSANCES
-{'─'*40}
+BASE DE CONNAISSANCES:
 """
     for k in knowledge:
-        doc += f"[{k.get('category', '?')}] (imp:{k.get('importance', 1)}) {k.get('content', '')}\n"
-
-    doc += f"\n6. AUTOMATISATIONS\n{'─'*40}\n"
+        doc += f"[{k.get('category','?')}] {k.get('content','')}\n"
+    doc += f"\nAUTOMATISATIONS:\n"
     for a in automations:
-        st = "ACTIVE" if a.get("active") else "INACTIVE"
-        doc += f"[{st}] {a.get('name', '?')} - {a.get('trigger_type', '?')} -> {a.get('action_type', '?')}\n"
-
-    doc += f"\n7. ACTIVITE RECENTE\n{'─'*40}\n"
-    for log in logs[:20]:
-        doc += f"[{log.get('timestamp', '?')[:19]}] [{log.get('type', '?').upper()}] {log.get('message', '')}\n"
-
-    doc += f"\n8. ETAT SYSTEME\n{'─'*40}\n"
-    if latest_status:
-        for key, value in latest_status.items():
-            if key not in ('id', '_id'):
-                doc += f"{key}: {value}\n"
-
-    doc += f"\n{'='*60}\nFin - Genere par ARIA\n{'='*60}\n"
+        doc += f"[{'ON' if a.get('active') else 'OFF'}] {a.get('name','?')} ({a.get('trigger_type','?')} -> {a.get('action_type','?')})\n"
+    doc += f"\n{'='*60}\nFin - ARIA v2.0\n"
     await log_activity("success", "system", "Documentation generee")
     return {"documentation": doc, "generated_at": datetime.now(timezone.utc).isoformat()}
 
@@ -476,13 +649,9 @@ async def get_stats():
     recent_logs = await db.activity_logs.find({}, {"_id": 0}).sort("timestamp", -1).to_list(5)
     latest_status = await db.system_states.find_one(sort=[("timestamp", -1)], projection={"_id": 0})
     return {
-        "messages": message_count,
-        "knowledge": knowledge_count,
-        "automations": automation_count,
-        "active_automations": active_automations,
-        "logs": log_count,
-        "recent_logs": recent_logs,
-        "system_status": latest_status or {}
+        "messages": message_count, "knowledge": knowledge_count,
+        "automations": automation_count, "active_automations": active_automations,
+        "logs": log_count, "recent_logs": recent_logs, "system_status": latest_status or {}
     }
 
 @api_router.post("/seed")
@@ -491,53 +660,25 @@ async def seed_data():
     if existing > 0:
         return {"status": "already_seeded"}
     defaults = [
-        AutomationRule(
-            name="Alerte batterie faible",
-            description="Notifier quand la batterie descend sous 20%",
-            trigger_type="battery",
-            trigger_config={"threshold": 20, "condition": "below"},
-            action_type="notification",
-            action_config={"title": "Batterie faible", "body": "Niveau critique."},
-            active=True
-        ),
-        AutomationRule(
-            name="Perte de connexion",
-            description="Journaliser la perte de reseau",
-            trigger_type="network",
-            trigger_config={"connected": False},
-            action_type="log",
-            action_config={"message": "Connexion reseau perdue"},
-            active=True
-        ),
-        AutomationRule(
-            name="Analyse systeme",
-            description="Analyse IA quand batterie > 80%",
-            trigger_type="battery",
-            trigger_config={"threshold": 80, "condition": "above"},
-            action_type="ai_analysis",
-            action_config={"prompt": "Analyse systeme et optimisations"},
-            active=False
-        ),
+        AutomationRule(name="Alerte batterie faible", description="Notifier quand batterie < 20%", trigger_type="battery", trigger_config={"threshold": 20, "condition": "below"}, action_type="notification", action_config={"title": "Batterie faible", "body": "Niveau critique."}, active=True),
+        AutomationRule(name="Perte de connexion", description="Journaliser la perte reseau", trigger_type="network", trigger_config={"connected": False}, action_type="log", action_config={"message": "Connexion perdue"}, active=True),
+        AutomationRule(name="Analyse systeme", description="Analyse IA quand batterie > 80%", trigger_type="battery", trigger_config={"threshold": 80, "condition": "above"}, action_type="ai_analysis", action_config={"prompt": "Analyse systeme"}, active=False),
     ]
-    for auto in defaults:
-        await db.automations.insert_one(auto.dict())
-
-    default_knowledge = [
-        KnowledgeEntry(category="system", content="Application Expo SDK 54 avec FastAPI backend et MongoDB.", importance=3, source="system"),
-        KnowledgeEntry(category="system", content="ARIA utilise Claude Sonnet 4.5 pour l'intelligence artificielle.", importance=3, source="system"),
+    for a in defaults:
+        await db.automations.insert_one(a.dict())
+    default_k = [
+        KnowledgeEntry(category="system", content="ARIA v2: Claude + Mistral fallback + mode local. Debride.", importance=3, source="system"),
+        KnowledgeEntry(category="system", content="Actions autonomes: add_knowledge, create_automation, delete_knowledge.", importance=3, source="system"),
     ]
-    for k in default_knowledge:
+    for k in default_k:
         await db.knowledge_base.insert_one(k.dict())
+    await log_activity("success", "system", "Donnees initiales v2 chargees")
+    return {"status": "seeded"}
 
-    await log_activity("success", "system", "Donnees initiales chargees")
-    return {"status": "seeded", "automations": len(defaults), "knowledge": len(default_knowledge)}
-
-# ===== APP CONFIG =====
+# ===== APP =====
 app.include_router(api_router)
 app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
 
 @app.on_event("startup")
 async def startup():
@@ -546,7 +687,7 @@ async def startup():
     await db.knowledge_base.create_index("category")
     await db.activity_logs.create_index("timestamp")
     await db.automations.create_index("active")
-    logger.info("ARIA Backend started")
+    logging.getLogger(__name__).info("ARIA v2 Backend started")
 
 @app.on_event("shutdown")
 async def shutdown():
